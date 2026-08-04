@@ -74,7 +74,7 @@ type WriteError = WriteUnknownOperation | StdinUnavailable | WriteAlreadyPending
 {-| Direct leader terminal fact. -}
 type LeaderTermination = Exited Int | Signaled String | ExitUnknown
 {-| Observational leader facts; PID is not authority. -}
-type alias ProcessInfo = { pid : Int }
+type alias ProcessInfo = { pid : Int, pgid : Int }
 {-| First manager-routed cleanup initiator. -}
 type CleanupReason = LeaderFinished | ExplicitCancel | DeadlineReached | SupervisorShutdown | OutputOverflowStdout | OutputOverflowStderr | InputTransportFailed | ProcessTransportFailed
 {-| One attempted group signal syscall. -}

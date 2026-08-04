@@ -1,10 +1,10 @@
 effect module Schelm.Node.ChildProcess.Supervisor where { command = MyCmd } exposing
-    ( Supervisor, Operation, Request, SpawnCallbacks, RunCallbacks, create, spawn, run
+    ( Supervisor, Operation, Request, SpawnCallbacks, RunCallbacks, create, createParented, spawn, run
     , demandStdout, demandStderr, writeStdin, closeStdin, cancel, shutdown
     )
 
 {-| Manager-owned supervised operations.
-@docs Supervisor, Operation, Request, SpawnCallbacks, RunCallbacks, create, spawn, run
+@docs Supervisor, Operation, Request, SpawnCallbacks, RunCallbacks, create, createParented, spawn, run
 @docs demandStdout, demandStderr, writeStdin, closeStdin, cancel, shutdown
 -}
 
@@ -15,6 +15,7 @@ import Platform
 import Platform.Cmd exposing (Cmd)
 import Process
 import Schelm.Node.ChildProcess as Child
+import Schelm.Node.ChildProcess.ParentAdapter as ParentAdapter
 import Task exposing (Task)
 
 
@@ -52,7 +53,7 @@ type StdinState = StdinIdle | StdinBusy WriteKind | StdinClosed
 type alias PendingWrite msg = { supervisor : Int, operation : Int, kind : WriteKind, callback : Request -> Result Child.WriteError () -> msg }
 type alias State msg =
     { nextSupervisor : Int, nextOperation : Int, nextRequest : Int
-    , supervisors : Dict Int (), active : Dict Int (Active msg)
+    , supervisors : Dict Int (Maybe ( Int, Int )), active : Dict Int (Active msg)
     , shutdowns : Dict Int (Result Child.ControlError Child.ShutdownReport -> msg)
     , reads : Dict Int (PendingRead msg), writes : Dict Int (PendingWrite msg)
     , stdinStates : Dict Int StdinState
@@ -60,6 +61,7 @@ type alias State msg =
 
 type MyCmd msg
     = Create (Result Child.CreateError Supervisor -> msg)
+    | CreateParented ParentAdapter.Prepared (Result Child.CreateError Supervisor -> msg)
     | Spawn Supervisor (SpawnCallbacks msg) Child.Program (List Child.Argument) Child.SpawnOptions
     | Run Supervisor (RunCallbacks msg) Child.Program (List Child.Argument) Child.RunOptions
     | Demand Bool Operation (Request -> Result Child.ReadError Child.ReadResult -> msg)
@@ -78,6 +80,9 @@ type alias MyRouter msg = Platform.Router msg SelfMsg
 {-| Create a standalone Unix supervisor. -}
 create : (Result Child.CreateError Supervisor -> msg) -> Cmd msg
 create cb = command (Create cb)
+{-| Create a supervisor from a parent-acknowledged, single-use reservation. -}
+createParented : ParentAdapter.Prepared -> (Result Child.CreateError Supervisor -> msg) -> Cmd msg
+createParented prepared cb = command (CreateParented prepared cb)
 {-| Spawn a demand-streamed process. -}
 spawn : Supervisor -> SpawnCallbacks msg -> Child.Program -> List Child.Argument -> Child.SpawnOptions -> Cmd msg
 spawn supervisor callbacks executable arguments options = command (Spawn supervisor callbacks executable arguments options)
@@ -106,6 +111,7 @@ shutdown supervisor cb = command (Shutdown supervisor cb)
 cmdMap f command_ =
     case command_ of
         Create cb -> Create (cb >> f)
+        CreateParented prepared cb -> CreateParented prepared (cb >> f)
         Spawn s cb p a o -> Spawn s (mapCallbacks f cb) p a o
         Run s cb p a o -> Run s (mapRunCallbacks f cb) p a o
         Demand b op cb -> Demand b op (\r x -> f (cb r x))
@@ -144,7 +150,19 @@ applyCommand router command_ state =
                 send router (cb (Err Child.UnsupportedPlatform)) state
             else
                 let sid = state.nextSupervisor in
-                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid () state.supervisors }
+                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid Nothing state.supervisors }
+
+        CreateParented prepared cb ->
+            if state.nextSupervisor >= maxId then
+                send router (cb (Err (Child.IdentifierExhausted Child.SupervisorIdentifier))) state
+            else if not Elm.Kernel.SchelmChildProcess.isUnix then
+                send router (cb (Err Child.UnsupportedPlatform)) state
+            else
+                let
+                    sid = state.nextSupervisor
+                    parent = ( ParentAdapter.reservation prepared, ParentAdapter.responseTimeout prepared )
+                in
+                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid (Just parent) state.supervisors }
 
         Spawn (Supervisor sid) cb executable arguments options ->
             start router sid (SpawnCallbacksValue cb) executable arguments (Child.spawnFacts options) state
@@ -197,8 +215,20 @@ start router sid cb executable arguments facts state =
                             let
                                 next = { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active, stdinStates = Dict.insert oid StdinIdle state.stdinStates }
                                 arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
+                                expose info = Process.spawn arm |> Task.andThen (\_ -> send router (started cb (Operation sid oid) info) next)
                             in
-                            Process.spawn arm |> Task.andThen (\_ -> send router (started cb (Operation sid oid) { pid = pid }) next)
+                            case Dict.get sid state.supervisors |> Maybe.andThen identity of
+                                Nothing -> expose { pid = pid, pgid = pid }
+                                Just ( reservation, timeout ) ->
+                                    Elm.Kernel.SchelmChildProcess.parentBind oid reservation timeout
+                                        |> Task.map Ok
+                                        |> Task.onError (Err >> Task.succeed)
+                                        |> Task.andThen
+                                            (\bound ->
+                                                case bound of
+                                                    Ok ( boundPid, boundPgid ) -> expose { pid = boundPid, pgid = boundPgid }
+                                                    Err detail -> Elm.Kernel.SchelmChildProcess.cancel oid |> Task.andThen (\_ -> send router (spawnFailed cb (Child.SpawnFailed detail)) next)
+                                            )
                 )
 
 startRead router stdout sid oid cb state =
