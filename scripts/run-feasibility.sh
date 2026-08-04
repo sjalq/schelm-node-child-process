@@ -4,7 +4,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ELM=${SCHELM_ELM:-/home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author/result/bin/elm}
 HTTP=${SCHELM_HTTP_CLIENT_WORKTREE:-/home/s.dormehl/git/schelm/.worktrees/program-foundation/packages/node-http-client/.worktrees/schelm-node-http-client-v1}
 HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
-PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.0"
+PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.1"
 mkdir -p "$PKG"
 rm -rf "$PKG/src"
 cp -R "$ROOT/src" "$PKG/src"

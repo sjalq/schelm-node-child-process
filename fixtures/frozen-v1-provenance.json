@@ -1,0 +1,11 @@
+{
+  "release": "1.0.0",
+  "commit": "9f3bf64580a84f25041ce20bfdb55bbf0a090d55",
+  "tree": "e010e50cb47fb3998c1705bd281064684923c6aa",
+  "gitArchiveSha256": "4ed9f3da49eba3fad841b677a41c6a9e44dccfef0fca298c91becf2b56af90b0",
+  "callers": {
+    "fixtures/feasibility/src/BuilderMain.elm": "c6d6d51c1e0484d97c0bfb72cf86f7cc3bf17bd48861114b2aa1aa5a84914b6d",
+    "fixtures/feasibility/src/RunMain.elm": "36c6b12af98cd9a9ab1c31b752ead032a8c78fbc7572df0765113862ff4778ab",
+    "fixtures/feasibility/src/DemandMain.elm": "ffe6426cc4fb622a8f94b6bc299c5e781dd84204ef7239db249e76951a717956"
+  }
+}

@@ -35,7 +35,7 @@ const entry = Buffer.concat([
   Buffer.from(author),
   Buffer.from([project.length]),
   Buffer.from(project),
-  Buffer.from([1, 1, 0]),
+  Buffer.from([1, 1, 1]),
   Buffer.alloc(8),
 ]);
 registry = Buffer.concat([registry.subarray(0, insertion), entry, registry.subarray(insertion)]);
