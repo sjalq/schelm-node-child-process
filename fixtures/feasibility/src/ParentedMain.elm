@@ -30,7 +30,7 @@ update msg model =
         Prepared (Ok prepared) -> ( model, Supervisor.createParented prepared Created )
         Created (Err _) -> ( model, report (Encode.string "create-failed") )
         Created (Ok supervisor) ->
-            case ( Child.program "/opt/elm-harness/current/runtime/node", Child.argument "-e", Child.argument "setTimeout(()=>process.exit(0),1000)" ) of
+            case ( Child.program "/opt/elm-harness/current/runtime/node", Child.argument "-e", Child.argument "process.on('SIGTERM',()=>{});setTimeout(()=>process.exit(0),25)" ) of
                 ( Ok executable, Ok a1, Ok a2 ) ->
                     ( model
                     , Supervisor.spawn supervisor
@@ -42,4 +42,18 @@ update msg model =
             ( model, report (Encode.object [ ( "started", Encode.int info.pid ), ( "pgid", Encode.int info.pgid ) ]) )
         Failed (Child.SpawnFailed "cancelled") -> ( model, Cmd.none )
         Failed _ -> ( model, report (Encode.string "spawn-failed") )
-        Finished _ _ -> ( model, report (Encode.string "finished") )
+        Finished _ final ->
+            let
+                reap =
+                    case final.cleanup of
+                        Child.CleanupObservedGone evidence -> parentReap evidence.parentReap
+                        Child.CleanupUncertain evidence -> parentReap evidence.parentReap
+            in
+            ( model, report (Encode.object [ ( "finished", Encode.string reap ) ]) )
+
+parentReap evidence =
+    case evidence of
+        Child.ParentReapNotRequested -> "not-requested"
+        Child.ParentReapAcknowledged -> "ack"
+        Child.ParentReapTimedOut -> "timeout"
+        Child.ParentReapFailed detail -> "failed:" ++ detail

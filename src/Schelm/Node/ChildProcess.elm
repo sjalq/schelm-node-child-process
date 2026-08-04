@@ -9,7 +9,7 @@ module Schelm.Node.ChildProcess exposing
     , programString, argumentsStrings, spawnFacts, runFacts
     , ConfigurationError(..), IdentifierKind(..), CreateError(..), SpawnError(..), ControlError(..)
     , ReadResult(..), ReadError(..), WriteError(..), LeaderTermination(..), ProcessInfo
-    , CleanupReason(..), SignalResult(..), ProbeResult(..), Cleanup(..), CapturedOutput(..), Final, RunFailure, RunError(..), ShutdownReport
+    , CleanupReason(..), SignalResult(..), ParentReapResult(..), ProbeResult(..), Cleanup(..), CapturedOutput(..), Final, RunFailure, RunError(..), ShutdownReport
     )
 
 {-| Validated child-process data. Constructors that carry host strings or bounds are opaque.
@@ -19,7 +19,7 @@ module Schelm.Node.ChildProcess exposing
 @docs withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnGrace
 @docs withRunWorkingDirectory, withRunEnvironment, withRunStdin, withRunStdout, withRunStderr, withRunDeadline, withRunGrace
 @docs programString, argumentsStrings, spawnFacts, runFacts
-@docs ConfigurationError, IdentifierKind, CreateError, SpawnError, ControlError, ReadResult, ReadError, WriteError, LeaderTermination, ProcessInfo, CleanupReason, SignalResult, ProbeResult, Cleanup, CapturedOutput, Final, RunFailure, RunError, ShutdownReport
+@docs ConfigurationError, IdentifierKind, CreateError, SpawnError, ControlError, ReadResult, ReadError, WriteError, LeaderTermination, ProcessInfo, CleanupReason, SignalResult, ParentReapResult, ProbeResult, Cleanup, CapturedOutput, Final, RunFailure, RunError, ShutdownReport
 -}
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
@@ -82,6 +82,13 @@ type SignalResult
     = SignalSent
     | SignalFailed String
 
+{-| Parent's bounded pre-KILL reap evidence. -}
+type ParentReapResult
+    = ParentReapNotRequested
+    | ParentReapAcknowledged
+    | ParentReapTimedOut
+    | ParentReapFailed String
+
 {-| One fixed post-KILL group probe. -}
 type ProbeResult
     = ProbePresent
@@ -93,11 +100,13 @@ type Cleanup
     = CleanupObservedGone
         { term : SignalResult
         , kill : SignalResult
+        , parentReap : ParentReapResult
         , probes : List ProbeResult
         }
     | CleanupUncertain
         { term : SignalResult
         , kill : SignalResult
+        , parentReap : ParentReapResult
         , probes : List ProbeResult
         , detail : String
         }

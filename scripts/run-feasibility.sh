@@ -6,6 +6,7 @@ HTTP=${SCHELM_HTTP_CLIENT_WORKTREE:-/home/s.dormehl/git/schelm/.worktrees/progra
 HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
 PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.0"
 mkdir -p "$PKG"
+rm -rf "$PKG/src"
 cp -R "$ROOT/src" "$PKG/src"
 cp "$ROOT/elm.json" "$ROOT/README.md" "$PKG/"
 node "$ROOT/scripts/add-private-v1-1-to-registry.cjs" "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process

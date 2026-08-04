@@ -8,7 +8,7 @@ HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
 PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.0"
 ELM_HOME="$HOME_DIR" "$ELM" make --docs=/tmp/schelm-child-docs.json >/dev/null
 test -s /tmp/schelm-child-docs.json
-mkdir -p "$PKG"; cp -R "$ROOT/src" "$PKG/src"; cp "$ROOT/elm.json" "$ROOT/README.md" "$PKG/"
+mkdir -p "$PKG"; rm -rf "$PKG/src"; cp -R "$ROOT/src" "$PKG/src"; cp "$ROOT/elm.json" "$ROOT/README.md" "$PKG/"
 node "$ROOT/scripts/add-private-v1-1-to-registry.cjs" "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process
 cd "$ROOT/fixtures/feasibility"; rm -rf elm-stuff
 ELM_HOME="$HOME_DIR" "$ELM" make src/BuilderMain.elm --output=/tmp/schelm-child-builder-debug.js >/dev/null
@@ -45,11 +45,15 @@ ELM_HOME="$HOME_DIR" "$ELM" make src/ScaleMain.elm --optimize --output=/tmp/sche
 node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-debug.js
 node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-opt.js
 node "$ROOT/tests/model/generated-model.test.cjs"
+node "$ROOT/scripts/pinned-v1-differential.cjs"
+"$ROOT/scripts/unauthorized-author-gate.sh"
 node "$ROOT/tests/model/parent-adapter.test.cjs"
 ELM_HOME="$HOME_DIR" "$ELM" make src/ParentedMain.elm --output=/tmp/schelm-child-parented-debug.js >/dev/null
 ELM_HOME="$HOME_DIR" "$ELM" make src/ParentedMain.elm --optimize --output=/tmp/schelm-child-parented-opt.js >/dev/null
-node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-debug.js
-node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-opt.js
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-debug.js 100 ack
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-opt.js 100 ack
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-debug.js 1 reap-timeout
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-opt.js 1 reap-timeout
 node "$ROOT/tests/node/cleanup-oracle.test.cjs"
 node "$ROOT/tests/node/process-groups.test.cjs"
 ! grep -nE 'process\.(on|once)\(' "$ROOT/src/Elm/Kernel/SchelmChildProcess.js"

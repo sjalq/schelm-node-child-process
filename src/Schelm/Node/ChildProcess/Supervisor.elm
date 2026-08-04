@@ -44,7 +44,39 @@ type Callbacks msg
     = SpawnCallbacksValue (SpawnCallbacks msg)
     | RunCallbacksValue (RunCallbacks msg)
 
-type alias Active msg = { supervisor : Int, callbacks : Callbacks msg }
+type ParentRegistration
+    = Standalone
+    | Parented Int Int
+
+type OperationPhase
+    = Preparing
+    | Binding Int
+    | Running
+    | Rejecting String
+
+type OutputFacts
+    = SpawnOutput Int Int
+    | RunOutput ( Int, Int ) ( Int, Int )
+
+type alias Launch =
+    { program : String
+    , arguments : List String
+    , cwd : Maybe String
+    , env : ( Int, List ( String, String ) )
+    , stdin : ( Int, Maybe Bytes )
+    , output : OutputFacts
+    , grace : Int
+    , deadline : Int
+    }
+
+type alias Active msg =
+    { supervisor : Int
+    , callbacks : Callbacks msg
+    , parent : ParentRegistration
+    , phase : OperationPhase
+    , launch : Launch
+    }
+
 type alias PendingRead msg = { supervisor : Int, operation : Int, callback : Request -> Result Child.ReadError Child.ReadResult -> msg }
 type WriteKind = Writing | Closing
 
@@ -53,8 +85,8 @@ type StdinState = StdinIdle | StdinBusy WriteKind | StdinClosed
 type alias PendingWrite msg = { supervisor : Int, operation : Int, kind : WriteKind, callback : Request -> Result Child.WriteError () -> msg }
 type alias State msg =
     { nextSupervisor : Int, nextOperation : Int, nextRequest : Int
-    , supervisors : Dict Int (Maybe ( Int, Int )), active : Dict Int (Active msg)
-    , shutdowns : Dict Int (Result Child.ControlError Child.ShutdownReport -> msg)
+    , supervisors : Dict Int ParentRegistration, active : Dict Int (Active msg)
+    , shutdowns : Dict Int { callback : Result Child.ControlError Child.ShutdownReport -> msg, total : Int }
     , reads : Dict Int (PendingRead msg), writes : Dict Int (PendingWrite msg)
     , stdinStates : Dict Int StdinState
     }
@@ -71,8 +103,13 @@ type MyCmd msg
     | Shutdown Supervisor (Result Child.ControlError Child.ShutdownReport -> msg)
 
 type SelfMsg
-    = Finished Int Int String String String String ( String, ( String, List String ) ) (Maybe Bytes) (Maybe Bytes)
-    | ParentBound Int Int Int (Result String ( Int, Int ))
+    = BeginStart Int
+    | Spawned Int (Result String Int)
+    | BeginBind Int
+    | ExposeStarted Int Int Int
+    | ArmOperation Int
+    | Finished Int Int String String String String ( String, ( String, ( String, List String ) ) ) (Maybe Bytes) (Maybe Bytes)
+    | ParentBound Int (Result String ( Int, Int ))
     | ReadDone Int (Result String (Maybe Bytes))
     | WriteDone Int (Result String ())
 
@@ -151,7 +188,7 @@ applyCommand router command_ state =
                 send router (cb (Err Child.UnsupportedPlatform)) state
             else
                 let sid = state.nextSupervisor in
-                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid Nothing state.supervisors }
+                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid Standalone state.supervisors }
 
         CreateParented prepared cb ->
             if state.nextSupervisor >= maxId then
@@ -162,22 +199,28 @@ applyCommand router command_ state =
                 let
                     sid = state.nextSupervisor
                     reservation = ParentAdapter.reservation prepared
-                    parent = ( reservation, ParentAdapter.responseTimeout prepared )
+                    parent = Parented reservation (ParentAdapter.responseTimeout prepared)
                 in
                 Elm.Kernel.SchelmChildProcess.parentClaim reservation
                     |> Task.andThen
                         (\claimed ->
                             if claimed then
-                                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid (Just parent) state.supervisors }
+                                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid parent state.supervisors }
                             else
                                 send router (cb (Err (Child.UnsupportedRuntime "parent reservation already consumed"))) state
                         )
 
         Spawn (Supervisor sid) cb executable arguments options ->
-            start router sid (SpawnCallbacksValue cb) executable arguments (Child.spawnFacts options) state
+            let facts = Child.spawnFacts options in
+            start router sid (SpawnCallbacksValue cb) executable arguments
+                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = SpawnOutput facts.stdout facts.stderr, grace = facts.grace, deadline = facts.deadline }
+                state
 
         Run (Supervisor sid) cb executable arguments options ->
-            start router sid (RunCallbacksValue cb) executable arguments (Child.runFacts options) state
+            let facts = Child.runFacts options in
+            start router sid (RunCallbacksValue cb) executable arguments
+                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = RunOutput facts.stdout facts.stderr, grace = facts.grace, deadline = facts.deadline }
+                state
 
         Demand stdout (Operation sid oid) cb ->
             startRead router stdout sid oid cb state
@@ -189,57 +232,157 @@ applyCommand router command_ state =
             startClose router sid oid cb state
 
         Cancel (Operation sid oid) cb ->
-            if owned sid oid state then
-                Elm.Kernel.SchelmChildProcess.cancel oid |> Task.andThen (\_ -> send router (cb (Ok ())) state)
-            else
-                send router (cb (Err Child.UnknownOperation)) state
+            case Dict.get oid state.active of
+                Just active ->
+                    if active.supervisor == sid then
+                        cancelOperation router oid active cb state
+                    else
+                        send router (cb (Err Child.UnknownOperation)) state
+
+                Nothing ->
+                    send router (cb (Err Child.UnknownOperation)) state
 
         Shutdown (Supervisor sid) cb ->
             if Dict.member sid state.supervisors then
-                let ids = Dict.foldl (\oid active acc -> if active.supervisor == sid then oid :: acc else acc) [] state.active in
-                if List.isEmpty ids then
-                    send router (cb (Ok { operationsFinished = 0 })) { state | supervisors = Dict.remove sid state.supervisors }
-                else
-                    Elm.Kernel.SchelmChildProcess.cancelMany ids
-                        |> Task.andThen (\_ -> Task.succeed { state | supervisors = Dict.remove sid state.supervisors, shutdowns = Dict.insert sid cb state.shutdowns })
+                shutdownSupervisor router sid cb state
             else
                 send router (cb (Err Child.UnknownOperation)) state
 
-start router sid cb executable arguments facts state =
-    if not (Dict.member sid state.supervisors) then
-        send router (spawnFailed cb (Child.SpawnFailed "unknown supervisor")) state
-    else if state.nextOperation >= maxId then
-        send router (spawnFailed cb (Child.IdentifierExhaustedOnSpawn Child.OperationIdentifier)) state
+cancelOperation router oid active callback state =
+    case active.phase of
+        Preparing ->
+            let
+                next =
+                    { state
+                        | active = Dict.remove oid state.active
+                        , stdinStates = Dict.remove oid state.stdinStates
+                    }
+            in
+            sendMany router
+                [ spawnFailed active.callbacks (Child.SpawnFailed "cancelled")
+                , callback (Ok ())
+                ]
+                next
+
+        Binding _ ->
+            let
+                rejecting = { active | phase = Rejecting "cancelled" }
+                next = { state | active = Dict.insert oid rejecting state.active }
+            in
+            Elm.Kernel.SchelmChildProcess.cancel oid
+                |> Task.andThen (\_ -> send router (callback (Ok ())) next)
+
+        Running ->
+            Elm.Kernel.SchelmChildProcess.cancel oid
+                |> Task.andThen (\_ -> send router (callback (Ok ())) state)
+
+        Rejecting _ ->
+            send router (callback (Ok ())) state
+
+
+shutdownSupervisor router sid callback state =
+    let
+        ownedOperations =
+            Dict.toList state.active
+                |> List.filter (\( _, active ) -> active.supervisor == sid)
+        total = List.length ownedOperations
+        preparingIds =
+            ownedOperations
+                |> List.filterMap
+                    (\( oid, active ) ->
+                        case active.phase of
+                            Preparing -> Just oid
+                            _ -> Nothing
+                    )
+        physicalIds =
+            ownedOperations
+                |> List.filterMap
+                    (\( oid, active ) ->
+                        case active.phase of
+                            Preparing -> Nothing
+                            Rejecting _ -> Nothing
+                            _ -> Just oid
+                    )
+        preparingFailures =
+            ownedOperations
+                |> List.filterMap
+                    (\( _, active ) ->
+                        case active.phase of
+                            Preparing -> Just (spawnFailed active.callbacks (Child.SpawnFailed "cancelled"))
+                            _ -> Nothing
+                    )
+        abortBinding _ active =
+            if active.supervisor == sid then
+                case active.phase of
+                    Binding _ -> { active | phase = Rejecting "cancelled" }
+                    _ -> active
+            else
+                active
+        withoutPreparing =
+            List.foldl Dict.remove state.active preparingIds
+        next =
+            { state
+                | supervisors = Dict.remove sid state.supervisors
+                , active = Dict.map abortBinding withoutPreparing
+                , stdinStates = List.foldl Dict.remove state.stdinStates preparingIds
+            }
+    in
+    if List.isEmpty physicalIds then
+        sendMany router
+            (List.reverse (callback (Ok { operationsFinished = total }) :: List.reverse preparingFailures))
+            next
     else
-        let
-            oid = state.nextOperation
-            finish code signal reason detail cleanup evidence stdout stderr = Platform.sendToSelf router (Finished oid code signal reason detail cleanup evidence stdout stderr)
-        in
-        Elm.Kernel.SchelmChildProcess.start finish oid (Child.programString executable) (Child.argumentsStrings arguments) facts.cwd facts.env facts.stdin ( facts.stdout, ( facts.stderr, ( facts.grace, facts.deadline ) ) )
+        Elm.Kernel.SchelmChildProcess.cancelMany physicalIds
             |> Task.andThen
-                (\result ->
-                    case result of
-                        Err error -> send router (spawnFailed cb (mapSpawn error)) { state | nextOperation = oid + 1 }
-                        Ok pid ->
-                            let
-                                next = { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active, stdinStates = Dict.insert oid StdinIdle state.stdinStates }
-                                arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
-                                expose info = Process.spawn arm |> Task.andThen (\_ -> send router (started cb (Operation sid oid) info) next)
-                            in
-                            case Dict.get sid state.supervisors |> Maybe.andThen identity of
-                                Nothing -> expose { pid = pid, pgid = pid }
-                                Just ( reservation, timeout ) ->
-                                    Elm.Kernel.SchelmChildProcess.parentBind oid reservation timeout
-                                        |> Task.map Ok
-                                        |> Task.onError (Err >> Task.succeed)
-                                        |> Task.andThen
-                                            (\bindResult ->
-                                                Process.sleep 25
-                                                    |> Task.andThen (\_ -> Platform.sendToSelf router (ParentBound sid oid pid bindResult))
-                                            )
-                                        |> Process.spawn
-                                        |> Task.andThen (\_ -> Task.succeed next)
+                (\_ ->
+                    sendMany router preparingFailures
+                        { next
+                            | shutdowns =
+                                Dict.insert sid { callback = callback, total = total } next.shutdowns
+                        }
                 )
+
+
+start router sid cb executable arguments facts state =
+    case Dict.get sid state.supervisors of
+        Nothing ->
+            send router (spawnFailed cb (Child.SpawnFailed "unknown supervisor")) state
+
+        Just parent ->
+            if state.nextOperation >= maxId then
+                send router (spawnFailed cb (Child.IdentifierExhaustedOnSpawn Child.OperationIdentifier)) state
+            else
+                let
+                    oid = state.nextOperation
+                    launch =
+                        { program = Child.programString executable
+                        , arguments = Child.argumentsStrings arguments
+                        , cwd = facts.cwd
+                        , env = facts.env
+                        , stdin = facts.stdin
+                        , output = facts.output
+                        , grace = facts.grace
+                        , deadline = facts.deadline
+                        }
+                    operation =
+                        { supervisor = sid
+                        , callbacks = cb
+                        , parent = parent
+                        , phase = Preparing
+                        , launch = launch
+                        }
+                    next =
+                        { state
+                            | nextOperation = oid + 1
+                            , active = Dict.insert oid operation state.active
+                            , stdinStates = Dict.insert oid StdinIdle state.stdinStates
+                        }
+                in
+                -- Sending the launch message is part of this manager task. The manager
+                -- commits `next` before it can dequeue BeginStart; no spawned task can
+                -- observe an absent operation.
+                Platform.sendToSelf router (BeginStart oid)
+                    |> Task.andThen (\_ -> Task.succeed next)
 
 startRead router stdout sid oid cb state =
     case allocateRequest state of
@@ -302,6 +445,45 @@ started callbacks operation info =
         SpawnCallbacksValue cb -> cb.onStarted operation info
         RunCallbacksValue cb -> cb.onStarted operation info
 
+finishRejected router oid active detail state =
+    let
+        next =
+            { state
+                | active = Dict.remove oid state.active
+                , stdinStates = Dict.remove oid state.stdinStates
+            }
+        remaining =
+            Dict.foldl
+                (\_ item count ->
+                    if item.supervisor == active.supervisor then
+                        count + 1
+                    else
+                        count
+                )
+                0
+                next.active
+        failed = spawnFailed active.callbacks (Child.SpawnFailed detail)
+    in
+    case Dict.get active.supervisor next.shutdowns of
+        Just pendingShutdown ->
+            if remaining == 0 then
+                sendMany router
+                    [ failed, pendingShutdown.callback (Ok { operationsFinished = pendingShutdown.total }) ]
+                    { next | shutdowns = Dict.remove active.supervisor next.shutdowns }
+            else
+                send router failed next
+
+        Nothing ->
+            send router failed next
+
+
+sendMany router messages state =
+    messages
+        |> List.map (Platform.sendToApp router)
+        |> Task.sequence
+        |> Task.andThen (\_ -> Task.succeed state)
+
+
 finishOperation router oid active final state =
     let
         reason = final.cleanupReason
@@ -337,15 +519,21 @@ finishOperation router oid active final state =
                 SpawnCallbacksValue cb -> cb.onFinished operation final
                 RunCallbacksValue cb -> cb.onFinished operation (runResult final)
         remaining = Dict.foldl (\_ item count -> if item.supervisor == active.supervisor then count + 1 else count) 0 next.active
-        messages =
+        terminalMessages =
             case Dict.get active.supervisor next.shutdowns of
-                Just shutdownCb ->
-                    if remaining == 0 then pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg, shutdownCb (Ok { operationsFinished = 0 }) ] else pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg ]
-                Nothing -> pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg ]
+                Just pendingShutdown ->
+                    if remaining == 0 then
+                        [ finishedMsg, pendingShutdown.callback (Ok { operationsFinished = pendingShutdown.total }) ]
+                    else
+                        [ finishedMsg ]
+
+                Nothing ->
+                    [ finishedMsg ]
+        messages =
+            List.concat [ pendingReadMessages, pendingWriteMessages, terminalMessages ]
         after = if remaining == 0 then { next | shutdowns = Dict.remove active.supervisor next.shutdowns } else next
-        notify = Process.sleep 0 |> Task.andThen (\_ -> messages |> List.map (Platform.sendToApp router) |> Task.sequence |> Task.map (always ()))
     in
-    Process.spawn notify |> Task.andThen (\_ -> Task.succeed after)
+    sendMany router messages after
 
 runResult final =
     let failure = { leader = Just final.leader, cleanup = final.cleanup, stdout = final.stdout, stderr = final.stderr } in
@@ -363,10 +551,16 @@ transportWriteError detail =
         Just value -> mapWriteError value
         Nothing -> Child.WriteTransportFailed "unknown input transport failure"
 
-mapCleanup detail ( termError, ( killError, probeFacts ) ) =
+mapCleanup detail ( termError, ( killError, ( parentReapFact, probeFacts ) ) ) =
     let
         signalResult error =
             if error == "" then Child.SignalSent else Child.SignalFailed error
+
+        parentReapResult fact =
+            if fact == "ack" then Child.ParentReapAcknowledged
+            else if fact == "timeout" then Child.ParentReapTimedOut
+            else if String.startsWith "failed:" fact then Child.ParentReapFailed (String.dropLeft 7 fact)
+            else Child.ParentReapNotRequested
 
         probeResult fact =
             if fact == "gone" then Child.ProbeGone
@@ -377,6 +571,7 @@ mapCleanup detail ( termError, ( killError, probeFacts ) ) =
         evidence =
             { term = signalResult termError
             , kill = signalResult killError
+            , parentReap = parentReapResult parentReapFact
             , probes = List.map probeResult probeFacts
             }
     in
@@ -386,6 +581,7 @@ mapCleanup detail ( termError, ( killError, probeFacts ) ) =
         Child.CleanupUncertain
             { term = evidence.term
             , kill = evidence.kill
+            , parentReap = evidence.parentReap
             , probes = evidence.probes
             , detail = detail
             }
@@ -438,30 +634,177 @@ mapSpawn error =
 
 onSelfMsg router self state =
     case self of
+        BeginStart oid ->
+            case Dict.get oid state.active of
+                Just active ->
+                    case active.phase of
+                        Preparing ->
+                            let
+                                launch = active.launch
+                                finish code signal reason detail cleanup evidence stdout stderr =
+                                    Platform.sendToSelf router (Finished oid code signal reason detail cleanup evidence stdout stderr)
+                                startTask =
+                                    case launch.output of
+                                        SpawnOutput stdout stderr ->
+                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.grace, launch.deadline ) ) )
+                                                |> Task.andThen (Spawned oid >> Platform.sendToSelf router)
+
+                                        RunOutput stdout stderr ->
+                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.grace, launch.deadline ) ) )
+                                                |> Task.andThen (Spawned oid >> Platform.sendToSelf router)
+                            in
+                            Process.spawn startTask |> Task.andThen (\_ -> Task.succeed state)
+
+                        _ ->
+                            Task.succeed state
+
+                Nothing ->
+                    Task.succeed state
+
+        Spawned oid result ->
+            case Dict.get oid state.active of
+                Nothing ->
+                    Task.succeed state
+
+                Just active ->
+                    case ( active.phase, result ) of
+                        ( Preparing, Err error ) ->
+                            let
+                                next =
+                                    { state
+                                        | active = Dict.remove oid state.active
+                                        , stdinStates = Dict.remove oid state.stdinStates
+                                    }
+                            in
+                            send router (spawnFailed active.callbacks (mapSpawn error)) next
+
+                        ( Preparing, Ok pid ) ->
+                            case active.parent of
+                                Standalone ->
+                                    let
+                                        running = { active | phase = Running }
+                                        next = { state | active = Dict.insert oid running state.active }
+                                    in
+                                    Platform.sendToSelf router (ExposeStarted oid pid pid)
+                                        |> Task.andThen (\_ -> Task.succeed next)
+
+                                Parented _ _ ->
+                                    let
+                                        binding = { active | phase = Binding pid }
+                                        next = { state | active = Dict.insert oid binding state.active }
+                                    in
+                                    -- Binding is committed before BeginBind can launch the
+                                    -- parent request. Its response returns only as ParentBound.
+                                    Platform.sendToSelf router (BeginBind oid)
+                                        |> Task.andThen (\_ -> Task.succeed next)
+
+                        _ ->
+                            Task.succeed state
+
+        BeginBind oid ->
+            case Dict.get oid state.active of
+                Just active ->
+                    case ( active.phase, active.parent ) of
+                        ( Binding _, Parented reservation timeout ) ->
+                            Elm.Kernel.SchelmChildProcess.parentBind oid reservation timeout
+                                |> Task.map Ok
+                                |> Task.onError (Err >> Task.succeed)
+                                |> Task.andThen (ParentBound oid >> Platform.sendToSelf router)
+                                |> Process.spawn
+                                |> Task.andThen (\_ -> Task.succeed state)
+
+                        _ ->
+                            Task.succeed state
+
+                Nothing ->
+                    Task.succeed state
+
+        ExposeStarted oid pid pgid ->
+            case Dict.get oid state.active of
+                Just active ->
+                    case active.phase of
+                        Running ->
+                            let
+                                demandOutput =
+                                    case active.launch.output of
+                                        SpawnOutput stdout stderr -> stdout == 2 || stderr == 2
+                                        RunOutput _ _ -> False
+                                afterStarted =
+                                    if demandOutput then
+                                        Elm.Kernel.SchelmChildProcess.arm oid
+                                    else
+                                        Platform.sendToSelf router (ArmOperation oid)
+                            in
+                            Platform.sendToApp router (started active.callbacks (Operation active.supervisor oid) { pid = pid, pgid = pgid })
+                                |> Task.andThen (\_ -> afterStarted)
+                                |> Task.andThen (\_ -> Task.succeed state)
+
+                        _ ->
+                            Task.succeed state
+
+                Nothing ->
+                    Task.succeed state
+
+        ArmOperation oid ->
+            case Dict.get oid state.active of
+                Just active ->
+                    case active.phase of
+                        Running ->
+                            Elm.Kernel.SchelmChildProcess.arm oid
+                                |> Task.andThen (\_ -> Task.succeed state)
+
+                        _ ->
+                            Task.succeed state
+
+                Nothing ->
+                    Task.succeed state
+
         Finished oid code signal reason transportDetail cleanupDetail evidence stdout stderr ->
             case Dict.get oid state.active of
-                Nothing -> Task.succeed state
-                Just active ->
-                    let
-                        term = if signal /= "" then Child.Signaled signal else if code < 0 then Child.ExitUnknown else Child.Exited code
-                        final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, transportDetail = if transportDetail == "" then Nothing else Just transportDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
-                    in
-                    finishOperation router oid active final state
+                Nothing ->
+                    Task.succeed state
 
-        ParentBound sid oid _ result ->
-            case Dict.get oid state.active of
-                Nothing -> Task.succeed state
                 Just active ->
-                    case result of
-                        Ok ( pid, pgid ) ->
+                    case active.phase of
+                        Rejecting detail ->
+                            finishRejected router oid active detail state
+
+                        _ ->
                             let
-                                operation = Operation sid oid
-                                arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
+                                term = if signal /= "" then Child.Signaled signal else if code < 0 then Child.ExitUnknown else Child.Exited code
+                                final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, transportDetail = if transportDetail == "" then Nothing else Just transportDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
                             in
-                            Process.spawn arm |> Task.andThen (\_ -> send router (started active.callbacks operation { pid = pid, pgid = pgid }) state)
-                        Err detail ->
-                            Elm.Kernel.SchelmChildProcess.cancel oid
-                                |> Task.andThen (\_ -> send router (spawnFailed active.callbacks (Child.SpawnFailed detail)) state)
+                            finishOperation router oid active final state
+
+        ParentBound oid result ->
+            case Dict.get oid state.active of
+                Nothing ->
+                    Task.succeed state
+
+                Just active ->
+                    case active.phase of
+                        Binding _ ->
+                            case result of
+                                Ok ( pid, pgid ) ->
+                                    let
+                                        running = { active | phase = Running }
+                                        next = { state | active = Dict.insert oid running state.active }
+                                    in
+                                    Platform.sendToSelf router (ExposeStarted oid pid pgid)
+                                        |> Task.andThen (\_ -> Task.succeed next)
+
+                                Err detail ->
+                                    let
+                                        rejecting = { active | phase = Rejecting detail }
+                                        next = { state | active = Dict.insert oid rejecting state.active }
+                                    in
+                                    -- Failure notification is arbitrated by Finished: no
+                                    -- onStarted and exactly one terminal spawn failure.
+                                    Elm.Kernel.SchelmChildProcess.cancel oid
+                                        |> Task.andThen (\_ -> Task.succeed next)
+
+                        _ ->
+                            Task.succeed state
 
         ReadDone rid result ->
             case Dict.get rid state.reads of
