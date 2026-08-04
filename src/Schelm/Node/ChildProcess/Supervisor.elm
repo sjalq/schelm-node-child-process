@@ -160,9 +160,17 @@ applyCommand router command_ state =
             else
                 let
                     sid = state.nextSupervisor
-                    parent = ( ParentAdapter.reservation prepared, ParentAdapter.responseTimeout prepared )
+                    reservation = ParentAdapter.reservation prepared
+                    parent = ( reservation, ParentAdapter.responseTimeout prepared )
                 in
-                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid (Just parent) state.supervisors }
+                Elm.Kernel.SchelmChildProcess.parentClaim reservation
+                    |> Task.andThen
+                        (\claimed ->
+                            if claimed then
+                                send router (cb (Ok (Supervisor sid))) { state | nextSupervisor = sid + 1, supervisors = Dict.insert sid (Just parent) state.supervisors }
+                            else
+                                send router (cb (Err (Child.UnsupportedRuntime "parent reservation already consumed"))) state
+                        )
 
         Spawn (Supervisor sid) cb executable arguments options ->
             start router sid (SpawnCallbacksValue cb) executable arguments (Child.spawnFacts options) state

@@ -62,14 +62,14 @@ withResponseTimeout milliseconds _ =
 prepare : Options -> (Result PrepareError Prepared -> msg) -> Cmd msg
 prepare (Options timeout) callback =
     Elm.Kernel.SchelmChildProcess.parentPrepare timeout
-        |> Task.map mapPrepare
+        |> Task.map (mapPrepare timeout)
         |> Task.onError (mapError >> Err >> Task.succeed)
         |> Task.perform callback
 
 
-mapPrepare : Int -> Result PrepareError Prepared
-mapPrepare reservationId =
-    Ok (Prepared reservationId 5000)
+mapPrepare : Int -> Int -> Result PrepareError Prepared
+mapPrepare timeout reservationId =
+    Ok (Prepared reservationId timeout)
 
 
 mapError : String -> PrepareError
