@@ -72,6 +72,7 @@ type MyCmd msg
 
 type SelfMsg
     = Finished Int Int String String String String ( String, ( String, List String ) ) (Maybe Bytes) (Maybe Bytes)
+    | ParentBound Int Int Int (Result String ( Int, Int ))
     | ReadDone Int (Result String (Maybe Bytes))
     | WriteDone Int (Result String ())
 
@@ -231,12 +232,9 @@ start router sid cb executable arguments facts state =
                                     Elm.Kernel.SchelmChildProcess.parentBind oid reservation timeout
                                         |> Task.map Ok
                                         |> Task.onError (Err >> Task.succeed)
-                                        |> Task.andThen
-                                            (\bound ->
-                                                case bound of
-                                                    Ok ( boundPid, boundPgid ) -> expose { pid = boundPid, pgid = boundPgid }
-                                                    Err detail -> Elm.Kernel.SchelmChildProcess.cancel oid |> Task.andThen (\_ -> send router (spawnFailed cb (Child.SpawnFailed detail)) next)
-                                            )
+                                        |> Task.andThen (ParentBound sid oid pid >> Platform.sendToSelf router)
+                                        |> Process.spawn
+                                        |> Task.andThen (\_ -> Task.succeed next)
                 )
 
 startRead router stdout sid oid cb state =
@@ -445,6 +443,21 @@ onSelfMsg router self state =
                         final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, transportDetail = if transportDetail == "" then Nothing else Just transportDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
                     in
                     finishOperation router oid active final state
+
+        ParentBound sid oid _ result ->
+            case Dict.get oid state.active of
+                Nothing -> Task.succeed state
+                Just active ->
+                    case result of
+                        Ok ( pid, pgid ) ->
+                            let
+                                operation = Operation sid oid
+                                arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
+                            in
+                            Process.spawn arm |> Task.andThen (\_ -> send router (started active.callbacks operation { pid = pid, pgid = pgid }) state)
+                        Err detail ->
+                            Elm.Kernel.SchelmChildProcess.cancel oid
+                                |> Task.andThen (\_ -> send router (spawnFailed active.callbacks (Child.SpawnFailed detail)) state)
 
         ReadDone rid result ->
             case Dict.get rid state.reads of
