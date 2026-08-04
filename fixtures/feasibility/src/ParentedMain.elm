@@ -30,7 +30,7 @@ update msg model =
         Prepared (Ok prepared) -> ( model, Supervisor.createParented prepared Created )
         Created (Err _) -> ( model, report (Encode.string "create-failed") )
         Created (Ok supervisor) ->
-            case ( Child.program "/opt/elm-harness/current/runtime/node", Child.argument "-e", Child.argument "setTimeout(()=>process.exit(0),250)" ) of
+            case ( Child.program "/opt/elm-harness/current/runtime/node", Child.argument "-e", Child.argument "setTimeout(()=>process.exit(0),1000)" ) of
                 ( Ok executable, Ok a1, Ok a2 ) ->
                     ( model
                     , Supervisor.spawn supervisor
