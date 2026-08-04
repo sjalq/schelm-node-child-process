@@ -47,8 +47,11 @@ function _SchelmChildProcess_installParentRelay(child){
     var payload={};if(message.pid!==undefined)payload.pid=message.pid;if(message.pgid!==undefined)payload.pgid=message.pgid;
     _SchelmChildProcess_parentRequest(message.type,replyType,parentReservation,payload,5000,function(ok,detail){if(message.type==="schelm-child.prepare"&&!ok)reservations.delete(childReservation);if(message.type==="schelm-child.unregister")reservations.delete(childReservation);reply(message,replyType,ok,detail);});
   }
+  var drained=false;
+  function drain(){if(drained)return;drained=true;child.removeListener("message",onMessage);for(let parentReservation of reservations.values()){_SchelmChildProcess_parentRequest("schelm-child.before-kill","schelm-child.reaped",parentReservation,{},5000,function(){_SchelmChildProcess_parentRequest("schelm-child.unregister","schelm-child.unregistered",parentReservation,{},5000,function(){});});}reservations.clear();}
   child.on("message",onMessage);
-  return function(){child.removeListener("message",onMessage);reservations.clear();};
+  child.once("exit",drain);
+  return drain;
 }
 function _SchelmChildProcess_maybeClosedCleanup(e){if(e.armed&&e.closed&&(!e.demandOut||e.endedOut)&&(!e.demandErr||e.endedErr))_SchelmChildProcess_beginCleanup(e);}
 function _SchelmChildProcess_settleIo(e,reason){
