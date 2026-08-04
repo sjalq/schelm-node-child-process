@@ -1,64 +1,98 @@
 module Schelm.Node.ChildProcess.ParentAdapter exposing
-    ( Slot, Facts, State(..), Error(..), Action(..), Event(..)
-    , prepared, initial, step
+    ( Prepared
+    , Options
+    , PrepareError(..)
+    , defaultOptions
+    , withResponseTimeout
+    , prepare
+    , reservation
+    , responseTimeout
     )
 
-{-| Pure protocol for an external watchdog. Transport is supplied by a later integration.
-@docs Slot, Facts, State, Error, Action, Event, prepared, initial, step
+{-| Parent-process reservation transport.
+
+`prepare` sends a `schelm-child.prepare` request over Node IPC and produces an
+opaque, single-use capability only after the parent acknowledges it. The
+capability contains no PID, PGID, or signalling authority.
+
+@docs Prepared, Options, PrepareError, defaultOptions, withResponseTimeout, prepare
+@docs reservation, responseTimeout
 -}
 
-{-| Parent-minted slot identity. -}
-type Slot = Slot Int
+import Elm.Kernel.SchelmChildProcess
+import Platform.Cmd exposing (Cmd)
+import Task
 
-{-| Bound leader/process-group facts. -}
-type alias Facts = { pid : Int, pgid : Int }
 
-{-| Registration lifecycle; preparation necessarily precedes binding/spawn acknowledgement. -}
-type State
-    = Absent
-    | Prepared Slot
-    | Binding Slot Facts
-    | BoundAwaitingAck Slot Facts
-    | Registered Slot Facts
-    | Unregistering Slot Facts
+{-| Parent-acknowledged reservation. -}
+type Prepared
+    = Prepared Int Int
 
-{-| Fail-closed protocol error. -}
-type Error = UnexpectedEvent | SlotMismatch
 
-{-| Verb requested from transport. -}
-type Action = NoAction | SendBind Slot Facts | PermitStarted | KillAndClear Slot Facts | SendUnregister Slot | PermitFinal
+{-| Validated parent response timeout. -}
+type Options
+    = Options Int
 
-{-| Fact entering the pure protocol. -}
-type Event
-    = PrepareSucceeded Slot
-    | BindRequested Slot Facts
-    | BindSent
-    | RegistrationAcknowledged Slot
-    | RegistrationFailed Slot
-    | RegistrationTimedOut Slot
-    | CleanupCompleted Slot
-    | UnregisterAcknowledged Slot
-    | UnregisterTimedOut Slot
 
-{-| Construct a parent-minted slot. The parent must never reuse it in one runtime. -}
-prepared : Int -> Slot
-prepared = Slot
+{-| Reservation failure before any physical child exists. -}
+type PrepareError
+    = ParentUnavailable
+    | ParentRejected String
+    | ParentTransportLost
+    | ParentResponseTimedOut
+    | ReservationExhausted
 
-{-| No parent registration exists initially. -}
-initial : State
-initial = Absent
 
-{-| Total deterministic registration transition. Failure/timeout after bind requests kill-and-clear. -}
-step : Event -> State -> Result Error ( State, Action )
-step event state =
-    case ( state, event ) of
-        ( Absent, PrepareSucceeded slot ) -> Ok ( Prepared slot, NoAction )
-        ( Prepared slot, BindRequested requested facts ) -> if slot == requested then Ok ( Binding slot facts, SendBind slot facts ) else Err SlotMismatch
-        ( Binding slot facts, BindSent ) -> Ok ( BoundAwaitingAck slot facts, NoAction )
-        ( BoundAwaitingAck slot facts, RegistrationAcknowledged acknowledged ) -> if slot == acknowledged then Ok ( Registered slot facts, PermitStarted ) else Err SlotMismatch
-        ( BoundAwaitingAck slot facts, RegistrationFailed failed ) -> if slot == failed then Ok ( Absent, KillAndClear slot facts ) else Err SlotMismatch
-        ( BoundAwaitingAck slot facts, RegistrationTimedOut timedOut ) -> if slot == timedOut then Ok ( Absent, KillAndClear slot facts ) else Err SlotMismatch
-        ( Registered slot facts, CleanupCompleted completed ) -> if slot == completed then Ok ( Unregistering slot facts, SendUnregister slot ) else Err SlotMismatch
-        ( Unregistering slot _, UnregisterAcknowledged acknowledged ) -> if slot == acknowledged then Ok ( Absent, PermitFinal ) else Err SlotMismatch
-        ( Unregistering slot _, UnregisterTimedOut timedOut ) -> if slot == timedOut then Ok ( Absent, PermitFinal ) else Err SlotMismatch
-        _ -> Err UnexpectedEvent
+{-| Five-second response bound. -}
+defaultOptions : Options
+defaultOptions =
+    Options 5000
+
+
+{-| Set a positive, safe response bound. -}
+withResponseTimeout : Int -> Options -> Maybe Options
+withResponseTimeout milliseconds _ =
+    if milliseconds > 0 && milliseconds <= 9007199254740990 then
+        Just (Options milliseconds)
+    else
+        Nothing
+
+
+{-| Reserve with the parent before spawn. -}
+prepare : Options -> (Result PrepareError Prepared -> msg) -> Cmd msg
+prepare (Options timeout) callback =
+    Elm.Kernel.SchelmChildProcess.parentPrepare timeout
+        |> Task.map mapPrepare
+        |> Task.onError (mapError >> Err >> Task.succeed)
+        |> Task.perform callback
+
+
+mapPrepare : Int -> Result PrepareError Prepared
+mapPrepare reservationId =
+    Ok (Prepared reservationId 5000)
+
+
+mapError : String -> PrepareError
+mapError detail =
+    if detail == "PARENT_UNAVAILABLE" then
+        ParentUnavailable
+    else if detail == "PARENT_TRANSPORT_LOST" then
+        ParentTransportLost
+    else if detail == "PARENT_TIMEOUT" then
+        ParentResponseTimedOut
+    else if detail == "RESERVATION_EXHAUSTED" then
+        ReservationExhausted
+    else
+        ParentRejected detail
+
+
+{-| Package integration accessor; reservation identity is not process authority. -}
+reservation : Prepared -> Int
+reservation (Prepared value _) =
+    value
+
+
+{-| Package integration accessor. -}
+responseTimeout : Prepared -> Int
+responseTimeout (Prepared _ value) =
+    value
