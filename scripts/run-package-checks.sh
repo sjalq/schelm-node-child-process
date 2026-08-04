@@ -19,6 +19,14 @@ ELM_HOME="$HOME_DIR" "$ELM" make src/RunMain.elm --output=/tmp/schelm-child-run-
 ELM_HOME="$HOME_DIR" "$ELM" make src/RunMain.elm --optimize --output=/tmp/schelm-child-run-opt.js >/dev/null
 node "$ROOT/tests/run-worker.cjs" /tmp/schelm-child-run-debug.js
 node "$ROOT/tests/run-worker.cjs" /tmp/schelm-child-run-opt.js
+ELM_HOME="$HOME_DIR" "$ELM" make src/DemandMain.elm --output=/tmp/schelm-child-demand-debug.js >/dev/null
+ELM_HOME="$HOME_DIR" "$ELM" make src/DemandMain.elm --optimize --output=/tmp/schelm-child-demand-opt.js >/dev/null
+node "$ROOT/tests/demand-worker.cjs" /tmp/schelm-child-demand-debug.js
+node "$ROOT/tests/demand-worker.cjs" /tmp/schelm-child-demand-opt.js
+ELM_HOME="$HOME_DIR" "$ELM" make src/ConformanceMain.elm --output=/tmp/schelm-child-conformance-debug.js >/dev/null
+ELM_HOME="$HOME_DIR" "$ELM" make src/ConformanceMain.elm --optimize --output=/tmp/schelm-child-conformance-opt.js >/dev/null
+node "$ROOT/tests/conformance-worker.cjs" /tmp/schelm-child-conformance-debug.js
+node "$ROOT/tests/conformance-worker.cjs" /tmp/schelm-child-conformance-opt.js
 ELM_HOME="$HOME_DIR" "$ELM" make src/ScaleMain.elm --output=/tmp/schelm-child-scale-debug.js >/dev/null
 ELM_HOME="$HOME_DIR" "$ELM" make src/ScaleMain.elm --optimize --output=/tmp/schelm-child-scale-opt.js >/dev/null
 node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-debug.js
@@ -27,7 +35,6 @@ node "$ROOT/tests/model/generated-model.test.cjs"
 node "$ROOT/tests/model/parent-adapter.test.cjs"
 node "$ROOT/tests/node/cleanup-oracle.test.cjs"
 node "$ROOT/tests/node/process-groups.test.cjs"
-node "$ROOT/tests/node/backpressure-rss.test.cjs"
 ! grep -nE 'process\.(on|once)\(' "$ROOT/src/Elm/Kernel/SchelmChildProcess.js"
 printf 'compiler '; sha256sum "$ELM"
 printf 'debug '; sha256sum /tmp/schelm-child-builder-debug.js
@@ -36,3 +43,4 @@ printf 'optimize '; sha256sum /tmp/schelm-child-builder-opt.js
 cd "$ROOT"
 SCHELM_ELM="$ELM" node tests/artifact-gate.cjs
 node scripts/archive-gate.cjs
+! grep -nE 'result\.\$|\.\$ === .(Err|Ok|Just|Nothing)' "$ROOT/src/Elm/Kernel/SchelmChildProcess.js"

@@ -9,7 +9,7 @@ module Schelm.Node.ChildProcess exposing
     , programString, argumentsStrings, spawnFacts, runFacts
     , ConfigurationError(..), IdentifierKind(..), CreateError(..), SpawnError(..), ControlError(..)
     , ReadResult(..), ReadError(..), WriteError(..), LeaderTermination(..), ProcessInfo
-    , CleanupReason(..), Cleanup(..), CapturedOutput(..), Final, RunFailure, RunError(..), ShutdownReport
+    , CleanupReason(..), SignalResult(..), ProbeResult(..), Cleanup(..), CapturedOutput(..), Final, RunFailure, RunError(..), ShutdownReport
     )
 
 {-| Validated child-process data. Constructors that carry host strings or bounds are opaque.
@@ -19,7 +19,7 @@ module Schelm.Node.ChildProcess exposing
 @docs withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnGrace
 @docs withRunWorkingDirectory, withRunEnvironment, withRunStdin, withRunStdout, withRunStderr, withRunDeadline, withRunGrace
 @docs programString, argumentsStrings, spawnFacts, runFacts
-@docs ConfigurationError, IdentifierKind, CreateError, SpawnError, ControlError, ReadResult, ReadError, WriteError, LeaderTermination, ProcessInfo, CleanupReason, Cleanup, CapturedOutput, Final, RunFailure, RunError, ShutdownReport
+@docs ConfigurationError, IdentifierKind, CreateError, SpawnError, ControlError, ReadResult, ReadError, WriteError, LeaderTermination, ProcessInfo, CleanupReason, SignalResult, ProbeResult, Cleanup, CapturedOutput, Final, RunFailure, RunError, ShutdownReport
 -}
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
@@ -77,8 +77,30 @@ type LeaderTermination = Exited Int | Signaled String | ExitUnknown
 type alias ProcessInfo = { pid : Int }
 {-| First manager-routed cleanup initiator. -}
 type CleanupReason = LeaderFinished | ExplicitCancel | DeadlineReached | SupervisorShutdown | OutputOverflowStdout | OutputOverflowStderr | InputTransportFailed | ProcessTransportFailed
-{-| Fixed probe cleanup observation. -}
-type Cleanup = CleanupObservedGone | CleanupUncertain String
+{-| One attempted group signal syscall. -}
+type SignalResult
+    = SignalSent
+    | SignalFailed String
+
+{-| One fixed post-KILL group probe. -}
+type ProbeResult
+    = ProbePresent
+    | ProbeGone
+    | ProbeFailed String
+
+{-| Lossless TERM/KILL/probe evidence and final classification. -}
+type Cleanup
+    = CleanupObservedGone
+        { term : SignalResult
+        , kill : SignalResult
+        , probes : List ProbeResult
+        }
+    | CleanupUncertain
+        { term : SignalResult
+        , kill : SignalResult
+        , probes : List ProbeResult
+        , detail : String
+        }
 {-| Explicit capture accessibility. -}
 type CapturedOutput = NotCaptured | Captured Bytes
 {-| Exactly-once final operation result. -}

@@ -64,7 +64,7 @@ type MyCmd msg
     | Shutdown Supervisor (Result Child.ControlError Child.ShutdownReport -> msg)
 
 type SelfMsg
-    = Finished Int Int String String String (Maybe Bytes) (Maybe Bytes)
+    = Finished Int Int String String String ( String, ( String, List String ) ) (Maybe Bytes) (Maybe Bytes)
     | ReadDone Int (Result String (Maybe Bytes))
     | WriteDone Int (Result String ())
 
@@ -181,7 +181,7 @@ start router sid cb executable arguments facts state =
     else
         let
             oid = state.nextOperation
-            finish code signal reason cleanup stdout stderr = Platform.sendToSelf router (Finished oid code signal reason cleanup stdout stderr)
+            finish code signal reason cleanup evidence stdout stderr = Platform.sendToSelf router (Finished oid code signal reason cleanup evidence stdout stderr)
         in
         Elm.Kernel.SchelmChildProcess.start finish oid (Child.programString executable) (Child.argumentsStrings arguments) facts.cwd facts.env facts.stdin ( facts.stdout, ( facts.stderr, ( facts.grace, facts.deadline ) ) )
             |> Task.andThen
@@ -250,7 +250,33 @@ started callbacks operation info =
 
 finishOperation router oid active final state =
     let
-        next = { state | active = Dict.remove oid state.active }
+        reason = final.cleanupReason
+
+        pendingReadMessages =
+            Dict.foldl
+                (\rid pending acc ->
+                    if pending.operation == oid then
+                        pending.callback (Request pending.supervisor pending.operation rid) (Err (Child.ReadCancelled reason)) :: acc
+                    else
+                        acc
+                )
+                []
+                state.reads
+
+        pendingWriteMessages =
+            Dict.foldl
+                (\rid pending acc ->
+                    if pending.operation == oid then
+                        pending.callback (Request pending.supervisor pending.operation rid) (Err (Child.WriteCancelled reason)) :: acc
+                    else
+                        acc
+                )
+                []
+                state.writes
+
+        remainingReads = Dict.filter (\_ pending -> pending.operation /= oid) state.reads
+        remainingWrites = Dict.filter (\_ pending -> pending.operation /= oid) state.writes
+        next = { state | active = Dict.remove oid state.active, reads = remainingReads, writes = remainingWrites }
         operation = Operation active.supervisor oid
         finishedMsg =
             case active.callbacks of
@@ -260,8 +286,8 @@ finishOperation router oid active final state =
         messages =
             case Dict.get active.supervisor next.shutdowns of
                 Just shutdownCb ->
-                    if remaining == 0 then [ finishedMsg, shutdownCb (Ok { operationsFinished = 0 }) ] else [ finishedMsg ]
-                Nothing -> [ finishedMsg ]
+                    if remaining == 0 then pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg, shutdownCb (Ok { operationsFinished = 0 }) ] else pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg ]
+                Nothing -> pendingReadMessages ++ pendingWriteMessages ++ [ finishedMsg ]
         after = if remaining == 0 then { next | shutdowns = Dict.remove active.supervisor next.shutdowns } else next
         notify = Process.sleep 0 |> Task.andThen (\_ -> messages |> List.map (Platform.sendToApp router) |> Task.sequence |> Task.map (always ()))
     in
@@ -276,11 +302,40 @@ runResult final =
         Child.OutputOverflowStderr -> Err (Child.RunOverflow failure)
         _ -> Ok final
 
+mapCleanup detail ( termError, ( killError, probeFacts ) ) =
+    let
+        signalResult error =
+            if error == "" then Child.SignalSent else Child.SignalFailed error
+
+        probeResult fact =
+            if fact == "gone" then Child.ProbeGone
+            else if fact == "present" then Child.ProbePresent
+            else if String.startsWith "failed:" fact then Child.ProbeFailed (String.dropLeft 7 fact)
+            else Child.ProbeFailed fact
+
+        evidence =
+            { term = signalResult termError
+            , kill = signalResult killError
+            , probes = List.map probeResult probeFacts
+            }
+    in
+    if detail == "gone" then
+        Child.CleanupObservedGone evidence
+    else
+        Child.CleanupUncertain
+            { term = evidence.term
+            , kill = evidence.kill
+            , probes = evidence.probes
+            , detail = detail
+            }
+
 mapReason reason =
     case reason of
         "cancel" -> Child.ExplicitCancel
         "deadline" -> Child.DeadlineReached
         "shutdown" -> Child.SupervisorShutdown
+        "input" -> Child.InputTransportFailed
+        "transport" -> Child.ProcessTransportFailed
         "overflow-stdout" -> Child.OutputOverflowStdout
         "overflow-stderr" -> Child.OutputOverflowStderr
         _ -> Child.LeaderFinished
@@ -290,6 +345,28 @@ maybeCapture value =
         Nothing -> Child.NotCaptured
         Just bytes -> Child.Captured bytes
 
+mapReadError error =
+    if String.startsWith "CANCELLED:" error then
+        Child.ReadCancelled Child.ExplicitCancel
+    else if error == "ALREADY_PENDING" then
+        Child.ReadAlreadyPending
+    else if error == "UNAVAILABLE" then
+        Child.ReadUnavailable
+    else
+        Child.ReadTransportFailed error
+
+mapWriteError error =
+    if String.startsWith "BROKEN_PIPE:" error then
+        Child.BrokenPipe
+    else if String.startsWith "CANCELLED:" error then
+        Child.WriteCancelled Child.ExplicitCancel
+    else if error == "ALREADY_PENDING" then
+        Child.WriteAlreadyPending
+    else if error == "UNAVAILABLE" then
+        Child.StdinUnavailable
+    else
+        Child.WriteTransportFailed error
+
 mapSpawn error =
     case error of
         "ENOENT" -> Child.ExecutableNotFound
@@ -298,13 +375,13 @@ mapSpawn error =
 
 onSelfMsg router self state =
     case self of
-        Finished oid code signal reason cleanupDetail stdout stderr ->
+        Finished oid code signal reason cleanupDetail evidence stdout stderr ->
             case Dict.get oid state.active of
                 Nothing -> Task.succeed state
                 Just active ->
                     let
                         term = if signal /= "" then Child.Signaled signal else if code < 0 then Child.ExitUnknown else Child.Exited code
-                        final = { leader = term, cleanupReason = mapReason reason, cleanup = if cleanupDetail == "gone" then Child.CleanupObservedGone else Child.CleanupUncertain cleanupDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
+                        final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
                     in
                     finishOperation router oid active final state
 
@@ -315,7 +392,7 @@ onSelfMsg router self state =
                     let
                         mapped =
                             case result of
-                                Err error -> Err (Child.ReadTransportFailed error)
+                                Err error -> Err (mapReadError error)
                                 Ok Nothing -> Ok Child.End
                                 Ok (Just bytes) -> Ok (Child.Chunk bytes)
                     in
@@ -326,6 +403,6 @@ onSelfMsg router self state =
                 Nothing -> Task.succeed state
                 Just pending ->
                     let
-                        mapped = Result.mapError Child.WriteTransportFailed result
+                        mapped = Result.mapError mapWriteError result
                     in
                     send router (pending.callback (Request pending.supervisor pending.operation rid) mapped) { state | writes = Dict.remove rid state.writes }

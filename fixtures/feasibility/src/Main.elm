@@ -25,8 +25,8 @@ update msg model = case msg of
         let
             cleanup =
                 case final.cleanup of
-                    Child.CleanupObservedGone -> "gone"
-                    Child.CleanupUncertain detail -> detail
+                    Child.CleanupObservedGone _ -> "gone"
+                    Child.CleanupUncertain evidence -> evidence.detail
             exitCode =
                 case final.leader of
                     Child.Exited code -> code
