@@ -20,7 +20,7 @@ update msg model =
         Created (Err _) -> emit ("create-failed" :: model.trace) model
         Created (Ok supervisor) ->
             case ( Child.program "fake-program", Child.argument "arg" ) of
-                ( Ok executable, Ok arg ) -> ( { model | trace = "created" :: model.trace }, Supervisor.spawn supervisor { onStarted = Started, onSpawnFailed = Failed, onFinished = Finished } executable [ arg ] Child.defaultSpawnOptions )
+                ( Ok executable, Ok arg ) -> ( { model | trace = "created" :: model.trace }, Supervisor.spawn supervisor { onStarted = Started, onSpawnFailed = Failed, onFinished = Finished } executable [ arg ] (Child.withSpawnStdin Child.StreamStdin Child.defaultSpawnOptions) )
                 _ -> emit ("builder-failed" :: model.trace) model
         Started operation _ ->
             ( { model | trace = "started" :: model.trace, operation = Just operation }

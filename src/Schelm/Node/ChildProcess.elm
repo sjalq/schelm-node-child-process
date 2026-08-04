@@ -104,7 +104,7 @@ type Cleanup
 {-| Explicit capture accessibility. -}
 type CapturedOutput = NotCaptured | Captured Bytes
 {-| Exactly-once final operation result. -}
-type alias Final = { leader : LeaderTermination, cleanupReason : CleanupReason, cleanup : Cleanup, stdout : CapturedOutput, stderr : CapturedOutput }
+type alias Final = { leader : LeaderTermination, cleanupReason : CleanupReason, cleanup : Cleanup, transportDetail : Maybe String, stdout : CapturedOutput, stderr : CapturedOutput }
 {-| Bounded partial result on run failure. -}
 type alias RunFailure = { leader : Maybe LeaderTermination, cleanup : Cleanup, stdout : CapturedOutput, stderr : CapturedOutput }
 {-| Buffered run failure after start. -}

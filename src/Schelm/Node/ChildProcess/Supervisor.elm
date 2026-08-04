@@ -45,12 +45,17 @@ type Callbacks msg
 
 type alias Active msg = { supervisor : Int, callbacks : Callbacks msg }
 type alias PendingRead msg = { supervisor : Int, operation : Int, callback : Request -> Result Child.ReadError Child.ReadResult -> msg }
-type alias PendingWrite msg = { supervisor : Int, operation : Int, callback : Request -> Result Child.WriteError () -> msg }
+type WriteKind = Writing | Closing
+
+type StdinState = StdinIdle | StdinBusy WriteKind | StdinClosed
+
+type alias PendingWrite msg = { supervisor : Int, operation : Int, kind : WriteKind, callback : Request -> Result Child.WriteError () -> msg }
 type alias State msg =
     { nextSupervisor : Int, nextOperation : Int, nextRequest : Int
     , supervisors : Dict Int (), active : Dict Int (Active msg)
     , shutdowns : Dict Int (Result Child.ControlError Child.ShutdownReport -> msg)
     , reads : Dict Int (PendingRead msg), writes : Dict Int (PendingWrite msg)
+    , stdinStates : Dict Int StdinState
     }
 
 type MyCmd msg
@@ -64,7 +69,7 @@ type MyCmd msg
     | Shutdown Supervisor (Result Child.ControlError Child.ShutdownReport -> msg)
 
 type SelfMsg
-    = Finished Int Int String String String ( String, ( String, List String ) ) (Maybe Bytes) (Maybe Bytes)
+    = Finished Int Int String String String String ( String, ( String, List String ) ) (Maybe Bytes) (Maybe Bytes)
     | ReadDone Int (Result String (Maybe Bytes))
     | WriteDone Int (Result String ())
 
@@ -122,7 +127,7 @@ mapCallbacks f cb =
     }
 
 maxId = 9007199254740990
-init = Task.succeed { nextSupervisor = 0, nextOperation = 0, nextRequest = 0, supervisors = Dict.empty, active = Dict.empty, shutdowns = Dict.empty, reads = Dict.empty, writes = Dict.empty }
+init = Task.succeed { nextSupervisor = 0, nextOperation = 0, nextRequest = 0, supervisors = Dict.empty, active = Dict.empty, shutdowns = Dict.empty, reads = Dict.empty, writes = Dict.empty, stdinStates = Dict.empty }
 onEffects router commands state = applyCommands router commands state
 
 applyCommands router commands state =
@@ -181,7 +186,7 @@ start router sid cb executable arguments facts state =
     else
         let
             oid = state.nextOperation
-            finish code signal reason cleanup evidence stdout stderr = Platform.sendToSelf router (Finished oid code signal reason cleanup evidence stdout stderr)
+            finish code signal reason detail cleanup evidence stdout stderr = Platform.sendToSelf router (Finished oid code signal reason detail cleanup evidence stdout stderr)
         in
         Elm.Kernel.SchelmChildProcess.start finish oid (Child.programString executable) (Child.argumentsStrings arguments) facts.cwd facts.env facts.stdin ( facts.stdout, ( facts.stderr, ( facts.grace, facts.deadline ) ) )
             |> Task.andThen
@@ -190,11 +195,10 @@ start router sid cb executable arguments facts state =
                         Err error -> send router (spawnFailed cb (mapSpawn error)) { state | nextOperation = oid + 1 }
                         Ok pid ->
                             let
-                                next = { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active }
+                                next = { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active, stdinStates = Dict.insert oid StdinIdle state.stdinStates }
                                 arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
                             in
-                            Process.spawn arm
-                                |> Task.andThen (\_ -> send router (started cb (Operation sid oid) { pid = pid }) next)
+                            Process.spawn arm |> Task.andThen (\_ -> send router (started cb (Operation sid oid) { pid = pid }) next)
                 )
 
 startRead router stdout sid oid cb state =
@@ -212,23 +216,33 @@ startWrite router sid oid bytes cb state =
     case allocateRequest state of
         Nothing -> send router (cb (Request sid oid state.nextRequest) (Err (Child.WriteTransportFailed "identifier exhausted"))) state
         Just ( rid, next ) ->
-            if owned sid oid state then
-                Elm.Kernel.SchelmChildProcess.write oid bytes
-                    |> Task.map Ok |> Task.onError (Err >> Task.succeed)
-                    |> Task.andThen (WriteDone rid >> Platform.sendToSelf router) |> Process.spawn
-                    |> Task.andThen (\_ -> Task.succeed { next | writes = Dict.insert rid { supervisor = sid, operation = oid, callback = cb } next.writes })
-            else send router (cb (Request sid oid rid) (Err Child.WriteUnknownOperation)) next
+            if not (owned sid oid state) then
+                send router (cb (Request sid oid rid) (Err Child.WriteUnknownOperation)) next
+            else
+                case Dict.get oid state.stdinStates |> Maybe.withDefault StdinIdle of
+                    StdinClosed -> send router (cb (Request sid oid rid) (Err Child.StdinAlreadyClosed)) next
+                    StdinBusy _ -> send router (cb (Request sid oid rid) (Err Child.WriteAlreadyPending)) next
+                    StdinIdle ->
+                        Elm.Kernel.SchelmChildProcess.write oid bytes
+                            |> Task.map Ok |> Task.onError (Err >> Task.succeed)
+                            |> Task.andThen (WriteDone rid >> Platform.sendToSelf router) |> Process.spawn
+                            |> Task.andThen (\_ -> Task.succeed { next | writes = Dict.insert rid { supervisor = sid, operation = oid, kind = Writing, callback = cb } next.writes, stdinStates = Dict.insert oid (StdinBusy Writing) next.stdinStates })
 
 startClose router sid oid cb state =
     case allocateRequest state of
         Nothing -> send router (cb (Request sid oid state.nextRequest) (Err (Child.WriteTransportFailed "identifier exhausted"))) state
         Just ( rid, next ) ->
-            if owned sid oid state then
-                Elm.Kernel.SchelmChildProcess.close oid
-                    |> Task.map Ok |> Task.onError (Err >> Task.succeed)
-                    |> Task.andThen (WriteDone rid >> Platform.sendToSelf router) |> Process.spawn
-                    |> Task.andThen (\_ -> Task.succeed { next | writes = Dict.insert rid { supervisor = sid, operation = oid, callback = cb } next.writes })
-            else send router (cb (Request sid oid rid) (Err Child.WriteUnknownOperation)) next
+            if not (owned sid oid state) then
+                send router (cb (Request sid oid rid) (Err Child.WriteUnknownOperation)) next
+            else
+                case Dict.get oid state.stdinStates |> Maybe.withDefault StdinIdle of
+                    StdinClosed -> send router (cb (Request sid oid rid) (Err Child.StdinAlreadyClosed)) next
+                    StdinBusy _ -> send router (cb (Request sid oid rid) (Err Child.WriteAlreadyPending)) next
+                    StdinIdle ->
+                        Elm.Kernel.SchelmChildProcess.close oid
+                            |> Task.map Ok |> Task.onError (Err >> Task.succeed)
+                            |> Task.andThen (WriteDone rid >> Platform.sendToSelf router) |> Process.spawn
+                            |> Task.andThen (\_ -> Task.succeed { next | writes = Dict.insert rid { supervisor = sid, operation = oid, kind = Closing, callback = cb } next.writes, stdinStates = Dict.insert oid (StdinBusy Closing) next.stdinStates })
 
 allocateRequest state = if state.nextRequest >= maxId then Nothing else Just ( state.nextRequest, { state | nextRequest = state.nextRequest + 1 } )
 owned sid oid state =
@@ -276,7 +290,7 @@ finishOperation router oid active final state =
 
         remainingReads = Dict.filter (\_ pending -> pending.operation /= oid) state.reads
         remainingWrites = Dict.filter (\_ pending -> pending.operation /= oid) state.writes
-        next = { state | active = Dict.remove oid state.active, reads = remainingReads, writes = remainingWrites }
+        next = { state | active = Dict.remove oid state.active, reads = remainingReads, writes = remainingWrites, stdinStates = Dict.remove oid state.stdinStates }
         operation = Operation active.supervisor oid
         finishedMsg =
             case active.callbacks of
@@ -300,7 +314,14 @@ runResult final =
         Child.DeadlineReached -> Err (Child.RunDeadline failure)
         Child.OutputOverflowStdout -> Err (Child.RunOverflow failure)
         Child.OutputOverflowStderr -> Err (Child.RunOverflow failure)
+        Child.InputTransportFailed -> Err (Child.RunInputError (transportWriteError final.transportDetail) failure)
+        Child.ProcessTransportFailed -> Err (Child.RunTransportError (Maybe.withDefault "unknown process transport failure" final.transportDetail) failure)
         _ -> Ok final
+
+transportWriteError detail =
+    case detail of
+        Just value -> mapWriteError value
+        Nothing -> Child.WriteTransportFailed "unknown input transport failure"
 
 mapCleanup detail ( termError, ( killError, probeFacts ) ) =
     let
@@ -362,6 +383,8 @@ mapWriteError error =
         Child.WriteCancelled Child.ExplicitCancel
     else if error == "ALREADY_PENDING" then
         Child.WriteAlreadyPending
+    else if error == "CLOSED" then
+        Child.StdinAlreadyClosed
     else if error == "UNAVAILABLE" then
         Child.StdinUnavailable
     else
@@ -375,13 +398,13 @@ mapSpawn error =
 
 onSelfMsg router self state =
     case self of
-        Finished oid code signal reason cleanupDetail evidence stdout stderr ->
+        Finished oid code signal reason transportDetail cleanupDetail evidence stdout stderr ->
             case Dict.get oid state.active of
                 Nothing -> Task.succeed state
                 Just active ->
                     let
                         term = if signal /= "" then Child.Signaled signal else if code < 0 then Child.ExitUnknown else Child.Exited code
-                        final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
+                        final = { leader = term, cleanupReason = mapReason reason, cleanup = mapCleanup cleanupDetail evidence, transportDetail = if transportDetail == "" then Nothing else Just transportDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
                     in
                     finishOperation router oid active final state
 
@@ -404,5 +427,12 @@ onSelfMsg router self state =
                 Just pending ->
                     let
                         mapped = Result.mapError mapWriteError result
+
+                        stdinState =
+                            case ( pending.kind, mapped ) of
+                                ( Closing, Ok () ) -> StdinClosed
+                                _ -> StdinIdle
+
+                        next = { state | writes = Dict.remove rid state.writes, stdinStates = Dict.insert pending.operation stdinState state.stdinStates }
                     in
-                    send router (pending.callback (Request pending.supervisor pending.operation rid) mapped) { state | writes = Dict.remove rid state.writes }
+                    send router (pending.callback (Request pending.supervisor pending.operation rid) mapped) next

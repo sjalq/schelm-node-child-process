@@ -27,6 +27,19 @@ ELM_HOME="$HOME_DIR" "$ELM" make src/ConformanceMain.elm --output=/tmp/schelm-ch
 ELM_HOME="$HOME_DIR" "$ELM" make src/ConformanceMain.elm --optimize --output=/tmp/schelm-child-conformance-opt.js >/dev/null
 node "$ROOT/tests/conformance-worker.cjs" /tmp/schelm-child-conformance-debug.js
 node "$ROOT/tests/conformance-worker.cjs" /tmp/schelm-child-conformance-opt.js
+ELM_HOME="$HOME_DIR" "$ELM" make src/StdinRaceMain.elm --output=/tmp/schelm-child-stdin-debug.js >/dev/null
+ELM_HOME="$HOME_DIR" "$ELM" make src/StdinRaceMain.elm --optimize --output=/tmp/schelm-child-stdin-opt.js >/dev/null
+for artifact in /tmp/schelm-child-stdin-debug.js /tmp/schelm-child-stdin-opt.js; do
+  node "$ROOT/tests/stdin-race-worker.cjs" "$artifact" drain
+  node "$ROOT/tests/stdin-race-worker.cjs" "$artifact" error
+  node "$ROOT/tests/stdin-race-worker.cjs" "$artifact" close
+done
+ELM_HOME="$HOME_DIR" "$ELM" make src/RunFailureMain.elm --output=/tmp/schelm-child-runfailure-debug.js >/dev/null
+ELM_HOME="$HOME_DIR" "$ELM" make src/RunFailureMain.elm --optimize --output=/tmp/schelm-child-runfailure-opt.js >/dev/null
+for artifact in /tmp/schelm-child-runfailure-debug.js /tmp/schelm-child-runfailure-opt.js; do
+  node "$ROOT/tests/run-failure-worker.cjs" "$artifact" input
+  node "$ROOT/tests/run-failure-worker.cjs" "$artifact" process
+done
 ELM_HOME="$HOME_DIR" "$ELM" make src/ScaleMain.elm --output=/tmp/schelm-child-scale-debug.js >/dev/null
 ELM_HOME="$HOME_DIR" "$ELM" make src/ScaleMain.elm --optimize --output=/tmp/schelm-child-scale-opt.js >/dev/null
 node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-debug.js
