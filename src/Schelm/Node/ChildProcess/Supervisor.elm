@@ -213,13 +213,13 @@ applyCommand router command_ state =
         Spawn (Supervisor sid) cb executable arguments options ->
             let facts = Child.spawnFacts options in
             start router sid (SpawnCallbacksValue cb) executable arguments
-                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = SpawnOutput facts.stdout facts.stderr, grace = facts.grace, deadline = facts.deadline }
+                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = SpawnOutput facts.stdout facts.stderr, ipc = facts.ipc, grace = facts.grace, deadline = facts.deadline }
                 state
 
         Run (Supervisor sid) cb executable arguments options ->
             let facts = Child.runFacts options in
             start router sid (RunCallbacksValue cb) executable arguments
-                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = RunOutput facts.stdout facts.stderr, grace = facts.grace, deadline = facts.deadline }
+                { cwd = facts.cwd, env = facts.env, stdin = facts.stdin, output = RunOutput facts.stdout facts.stderr, ipc = False, grace = facts.grace, deadline = facts.deadline }
                 state
 
         Demand stdout (Operation sid oid) cb ->
@@ -361,6 +361,7 @@ start router sid cb executable arguments facts state =
                         , env = facts.env
                         , stdin = facts.stdin
                         , output = facts.output
+                        , ipc = facts.ipc
                         , grace = facts.grace
                         , deadline = facts.deadline
                         }
@@ -646,11 +647,11 @@ onSelfMsg router self state =
                                 startTask =
                                     case launch.output of
                                         SpawnOutput stdout stderr ->
-                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.grace, launch.deadline ) ) )
+                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.ipc, ( launch.grace, launch.deadline ) ) ) )
                                                 |> Task.andThen (Spawned oid >> Platform.sendToSelf router)
 
                                         RunOutput stdout stderr ->
-                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.grace, launch.deadline ) ) )
+                                            Elm.Kernel.SchelmChildProcess.start finish oid launch.program launch.arguments launch.cwd launch.env launch.stdin ( stdout, ( stderr, ( launch.ipc, ( launch.grace, launch.deadline ) ) ) )
                                                 |> Task.andThen (Spawned oid >> Platform.sendToSelf router)
                             in
                             Process.spawn startTask |> Task.andThen (\_ -> Task.succeed state)

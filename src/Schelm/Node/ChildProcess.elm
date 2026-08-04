@@ -2,9 +2,9 @@ module Schelm.Node.ChildProcess exposing
     ( Program, Argument, WorkingDirectory, Environment, ByteLimit, Duration
     , program, argument, workingDirectory, inheritedWorkingDirectory
     , inheritedEnvironment, mergeEnvironment, replaceEnvironment, byteLimit, milliseconds
-    , Stdin(..), StreamOutput(..), RunStdin(..), RunOutput(..), Deadline(..)
+    , Stdin(..), StreamOutput(..), SpawnIpc(..), RunStdin(..), RunOutput(..), Deadline(..)
     , SpawnOptions, RunOptions, defaultSpawnOptions, defaultRunOptions
-    , withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnGrace
+    , withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnIpc, withSpawnGrace
     , withRunWorkingDirectory, withRunEnvironment, withRunStdin, withRunStdout, withRunStderr, withRunDeadline, withRunGrace
     , programString, argumentsStrings, spawnFacts, runFacts
     , ConfigurationError(..), IdentifierKind(..), CreateError(..), SpawnError(..), ControlError(..)
@@ -15,8 +15,8 @@ module Schelm.Node.ChildProcess exposing
 {-| Validated child-process data. Constructors that carry host strings or bounds are opaque.
 @docs Program, Argument, WorkingDirectory, Environment, ByteLimit, Duration
 @docs program, argument, workingDirectory, inheritedWorkingDirectory, inheritedEnvironment, mergeEnvironment, replaceEnvironment, byteLimit, milliseconds
-@docs Stdin, StreamOutput, RunStdin, RunOutput, Deadline, SpawnOptions, RunOptions, defaultSpawnOptions, defaultRunOptions
-@docs withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnGrace
+@docs Stdin, StreamOutput, SpawnIpc, RunStdin, RunOutput, Deadline, SpawnOptions, RunOptions, defaultSpawnOptions, defaultRunOptions
+@docs withSpawnWorkingDirectory, withSpawnEnvironment, withSpawnStdin, withSpawnStdout, withSpawnStderr, withSpawnIpc, withSpawnGrace
 @docs withRunWorkingDirectory, withRunEnvironment, withRunStdin, withRunStdout, withRunStderr, withRunDeadline, withRunGrace
 @docs programString, argumentsStrings, spawnFacts, runFacts
 @docs ConfigurationError, IdentifierKind, CreateError, SpawnError, ControlError, ReadResult, ReadError, WriteError, LeaderTermination, ProcessInfo, CleanupReason, SignalResult, ParentReapResult, ProbeResult, Cleanup, CapturedOutput, Final, RunFailure, RunError, ShutdownReport
@@ -52,6 +52,9 @@ type ControlError = UnknownOperation | OperationCancelling | IdentifierExhausted
 type Stdin = ClosedStdin | InheritStdin | InputBytes Bytes | StreamStdin
 {-| Demand-streamed spawn output mode. -}
 type StreamOutput = InheritStream | DiscardStream | DemandStream
+{-| Optional private Node IPC channel for a spawned child. `ParentAdapterIpc`
+installs the package's parent-adapter fact/verb boundary on that channel. -}
+type SpawnIpc = NoIpc | ParentAdapterIpc
 {-| Buffered run stdin mode. -}
 type RunStdin = RunClosedStdin | RunInheritStdin | RunInputBytes Bytes
 {-| Buffered run output mode. -}
@@ -60,7 +63,7 @@ type RunOutput = InheritRunOutput | DiscardRunOutput | CaptureUpTo ByteLimit
 type Deadline = NoDeadline | DeadlineAfter Duration
 
 {-| Opaque streamed-spawn options. -}
-type SpawnOptions = SpawnOptions WorkingDirectory Environment Stdin StreamOutput StreamOutput Duration
+type SpawnOptions = SpawnOptions WorkingDirectory Environment Stdin StreamOutput StreamOutput SpawnIpc Duration
 {-| Opaque buffered-run options. -}
 type RunOptions = RunOptions WorkingDirectory Environment RunStdin RunOutput RunOutput Deadline Duration
 
@@ -157,28 +160,31 @@ defaultLimit = ByteLimit (1024 * 1024)
 defaultDeadline = DeadlineAfter (Duration 120000)
 {-| Demand-output, closed-stdin default spawn options. -}
 defaultSpawnOptions : SpawnOptions
-defaultSpawnOptions = SpawnOptions InheritWorkingDirectory InheritEnvironment ClosedStdin DemandStream DemandStream defaultGrace
+defaultSpawnOptions = SpawnOptions InheritWorkingDirectory InheritEnvironment ClosedStdin DemandStream DemandStream NoIpc defaultGrace
 {-| Bounded-capture buffered run defaults. -}
 defaultRunOptions : RunOptions
 defaultRunOptions = RunOptions InheritWorkingDirectory InheritEnvironment RunClosedStdin (CaptureUpTo defaultLimit) (CaptureUpTo defaultLimit) defaultDeadline defaultGrace
 {-| Set spawn cwd. -}
 withSpawnWorkingDirectory : WorkingDirectory -> SpawnOptions -> SpawnOptions
-withSpawnWorkingDirectory x (SpawnOptions _ b c d e f) = SpawnOptions x b c d e f
+withSpawnWorkingDirectory x (SpawnOptions _ b c d e f g) = SpawnOptions x b c d e f g
 {-| Set spawn environment. -}
 withSpawnEnvironment : Environment -> SpawnOptions -> SpawnOptions
-withSpawnEnvironment x (SpawnOptions a _ c d e f) = SpawnOptions a x c d e f
+withSpawnEnvironment x (SpawnOptions a _ c d e f g) = SpawnOptions a x c d e f g
 {-| Set spawn stdin. -}
 withSpawnStdin : Stdin -> SpawnOptions -> SpawnOptions
-withSpawnStdin x (SpawnOptions a b _ d e f) = SpawnOptions a b x d e f
+withSpawnStdin x (SpawnOptions a b _ d e f g) = SpawnOptions a b x d e f g
 {-| Set spawn stdout. -}
 withSpawnStdout : StreamOutput -> SpawnOptions -> SpawnOptions
-withSpawnStdout x (SpawnOptions a b c _ e f) = SpawnOptions a b c x e f
+withSpawnStdout x (SpawnOptions a b c _ e f g) = SpawnOptions a b c x e f g
 {-| Set spawn stderr. -}
 withSpawnStderr : StreamOutput -> SpawnOptions -> SpawnOptions
-withSpawnStderr x (SpawnOptions a b c d _ f) = SpawnOptions a b c d x f
+withSpawnStderr x (SpawnOptions a b c d _ f g) = SpawnOptions a b c d x f g
+{-| Give the child a private Node IPC channel served by the typed parent adapter. -}
+withSpawnIpc : SpawnIpc -> SpawnOptions -> SpawnOptions
+withSpawnIpc x (SpawnOptions a b c d e _ g) = SpawnOptions a b c d e x g
 {-| Set spawn cleanup grace. -}
 withSpawnGrace : Duration -> SpawnOptions -> SpawnOptions
-withSpawnGrace x (SpawnOptions a b c d e _) = SpawnOptions a b c d e x
+withSpawnGrace x (SpawnOptions a b c d e f _) = SpawnOptions a b c d e f x
 {-| Set run cwd. -}
 withRunWorkingDirectory : WorkingDirectory -> RunOptions -> RunOptions
 withRunWorkingDirectory x (RunOptions _ b c d e f g) = RunOptions x b c d e f g
@@ -207,8 +213,13 @@ programString (Program s) = s
 argumentsStrings : List Argument -> List String
 argumentsStrings = List.map (\(Argument s) -> s)
 {-| Internal spawn boundary facts. -}
-spawnFacts : SpawnOptions -> { cwd : Maybe String, env : ( Int, List ( String, String ) ), stdin : ( Int, Maybe Bytes ), stdout : Int, stderr : Int, grace : Int, deadline : Int }
-spawnFacts (SpawnOptions cwd env stdin stdout stderr (Duration grace)) = { cwd = cwdFact cwd, env = envFact env, stdin = stdinFact stdin, stdout = streamFact stdout, stderr = streamFact stderr, grace = grace, deadline = 0 }
+spawnFacts : SpawnOptions -> { cwd : Maybe String, env : ( Int, List ( String, String ) ), stdin : ( Int, Maybe Bytes ), stdout : Int, stderr : Int, ipc : Bool, grace : Int, deadline : Int }
+spawnFacts (SpawnOptions cwd env stdin stdout stderr ipc (Duration grace)) = { cwd = cwdFact cwd, env = envFact env, stdin = stdinFact stdin, stdout = streamFact stdout, stderr = streamFact stderr, ipc = ipcFact ipc, grace = grace, deadline = 0 }
+
+ipcFact ipc =
+    case ipc of
+        NoIpc -> False
+        ParentAdapterIpc -> True
 {-| Internal run boundary facts. -}
 runFacts : RunOptions -> { cwd : Maybe String, env : ( Int, List ( String, String ) ), stdin : ( Int, Maybe Bytes ), stdout : ( Int, Int ), stderr : ( Int, Int ), deadline : Int, grace : Int }
 runFacts (RunOptions cwd env stdin stdout stderr deadline (Duration grace)) = { cwd = cwdFact cwd, env = envFact env, stdin = runStdinFact stdin, stdout = runOutputFact stdout, stderr = runOutputFact stderr, deadline = deadlineFact deadline, grace = grace }
