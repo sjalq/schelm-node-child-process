@@ -1,6 +1,6 @@
 # 01 — `schelm-node-child-process` v1 design
 
-Status: first-turn design for independent hostile review. No production implementation is authorized by this artifact.
+Status: **rejected by `02-adversarial-review-a.md` and replaced by `03-design-revision-a.md`.** Retained as review history. No production implementation is authorized by this artifact.
 
 ## 1. Goal and boundary
 

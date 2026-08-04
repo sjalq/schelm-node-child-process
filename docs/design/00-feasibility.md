@@ -1,6 +1,6 @@
 # 00 — `schelm-node-child-process` feasibility
 
-Status: **feasible with a pull-based Task API; a private push effect manager is not feasible on the pinned compiler.**
+Status: **superseded in part by `02-adversarial-review-a.md` and `03-design-revision-a.md`.** The Task/kernel runtime proof remains valid, but the effect-manager conclusion below tested an application-local manager and was too broad. An installed authorized `sjalq/*` package manager is legal and is the revised v1 architecture.
 
 ## Question proved first
 
