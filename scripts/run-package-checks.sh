@@ -5,11 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ELM=${SCHELM_ELM:-/home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author/result/bin/elm}
 HTTP=${SCHELM_HTTP_CLIENT_WORKTREE:-/home/s.dormehl/git/schelm/.worktrees/program-foundation/packages/node-http-client/.worktrees/schelm-node-http-client-v1}
 HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
-PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.0.0"
+PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.0"
 ELM_HOME="$HOME_DIR" "$ELM" make --docs=/tmp/schelm-child-docs.json >/dev/null
 test -s /tmp/schelm-child-docs.json
 mkdir -p "$PKG"; cp -R "$ROOT/src" "$PKG/src"; cp "$ROOT/elm.json" "$ROOT/README.md" "$PKG/"
-node /home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author/scripts/add-private-fixture-to-registry.cjs "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process
+node "$ROOT/scripts/add-private-v1-1-to-registry.cjs" "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process
 cd "$ROOT/fixtures/feasibility"; rm -rf elm-stuff
 ELM_HOME="$HOME_DIR" "$ELM" make src/BuilderMain.elm --output=/tmp/schelm-child-builder-debug.js >/dev/null
 ELM_HOME="$HOME_DIR" "$ELM" make src/BuilderMain.elm --optimize --output=/tmp/schelm-child-builder-opt.js >/dev/null
@@ -46,6 +46,10 @@ node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-debug.js
 node "$ROOT/tests/scale-worker.cjs" /tmp/schelm-child-scale-opt.js
 node "$ROOT/tests/model/generated-model.test.cjs"
 node "$ROOT/tests/model/parent-adapter.test.cjs"
+ELM_HOME="$HOME_DIR" "$ELM" make src/ParentedMain.elm --output=/tmp/schelm-child-parented-debug.js >/dev/null
+ELM_HOME="$HOME_DIR" "$ELM" make src/ParentedMain.elm --optimize --output=/tmp/schelm-child-parented-opt.js >/dev/null
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-debug.js
+node "$ROOT/tests/parented-worker.cjs" /tmp/schelm-child-parented-opt.js
 node "$ROOT/tests/node/cleanup-oracle.test.cjs"
 node "$ROOT/tests/node/process-groups.test.cjs"
 ! grep -nE 'process\.(on|once)\(' "$ROOT/src/Elm/Kernel/SchelmChildProcess.js"
