@@ -1,0 +1,2 @@
+"use strict";
+const fs=require("node:fs"),vm=require("node:vm"),src=fs.readFileSync(process.argv[2],"utf8"),scope={};vm.runInNewContext(src.replace(/\}\(this\)\);?\s*$/,"}(scope));"),{scope,console,process,require,setTimeout,clearTimeout,setInterval,clearInterval,DataView,Buffer,Map});const app=scope.Elm.BuilderMain.init();app.ports.report.subscribe(x=>{if(x!=="ok")process.exitCode=1;console.log(x);process.exit();});

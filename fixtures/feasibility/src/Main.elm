@@ -1,30 +1,35 @@
 port module Main exposing (main)
-import Bytes exposing (Bytes)
 import Json.Encode as Encode
 import Platform
-import Process
-import Schelm.Node.ChildProcess.Feasibility as Child
-import Task
+import Schelm.Node.ChildProcess as Child
+import Schelm.Node.ChildProcess.Supervisor as Supervisor
 port report : Encode.Value -> Cmd msg
-type alias Model = ()
-type Msg = Start (Result String Child.Process) | Out Child.Process (Result String (Maybe Bytes)) | ErrorChunk Child.Process (Result String (Maybe Bytes)) | Done Child.Exit | Missing (Result String Child.Process) | Long (Result String Child.Process)
+type alias Model = { supervisor : Maybe Supervisor.Supervisor }
+type Msg = Created (Result Child.CreateError Supervisor.Supervisor) | Started Supervisor.Operation Child.ProcessInfo | SpawnFailed Child.SpawnError | Finished Supervisor.Operation Child.Final
 main : Program () Model Msg
-main = Platform.worker { init = \_ -> ( (), Cmd.batch [ Task.attempt Start (Child.spawn "/opt/elm-harness/current/runtime/node" [ "-e", "process.stdout.write('OUT');process.stderr.write('ERR');setTimeout(()=>process.exit(7),20)" ]), Task.attempt Missing (Child.spawn "/definitely/missing-schelm-command" []), Task.attempt Long (Child.spawn "/opt/elm-harness/current/runtime/node" [ "-e", "process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)" ]) ] ), update = update, subscriptions = \_ -> Sub.none }
-update : Msg -> Model -> ( Model, Cmd Msg )
+main = Platform.worker { init = \_ -> ( { supervisor = Nothing }, Supervisor.create Created ), update = update, subscriptions = \_ -> Sub.none }
 update msg model = case msg of
-    Start (Err error) -> ( model, report (Encode.string ("unexpected:" ++ error)) )
-    Start (Ok child) -> ( model, Cmd.batch [ Task.attempt (Out child) (Child.readStdout child), Task.attempt (ErrorChunk child) (Child.readStderr child), Task.perform Done (Child.wait child) ] )
-    Out _ result -> ( model, report (Encode.string (chunk "stdout" result)) )
-    ErrorChunk _ result -> ( model, report (Encode.string (chunk "stderr" result)) )
-    Done status -> ( model, report (Encode.object [ ( "exit", Encode.int status.code ), ( "signal", Encode.string status.signal ) ]) )
-    Missing result -> ( model, report (Encode.string (case result of
-            Err e -> "spawn-failed:" ++ e
-            Ok _ -> "unexpected-spawn")) )
-    Long result -> case result of
-        Err e -> ( model, report (Encode.string ("unexpected:" ++ e)) )
-        Ok child -> ( model, Task.perform Done (Child.terminate child |> Task.andThen (\_ -> Child.wait child)) )
-chunk : String -> Result String (Maybe Bytes) -> String
-chunk name result = case result of
-        Err e -> name ++ "-error:" ++ e
-        Ok Nothing -> name ++ "-end"
-        Ok (Just bytes) -> name ++ ":" ++ String.fromInt (Bytes.width bytes)
+    Created (Err _) -> ( model, report (Encode.string "create-failed") )
+    Created (Ok supervisor) ->
+        case Child.program "/opt/elm-harness/current/runtime/node" of
+            Err _ -> ( model, report (Encode.string "program-invalid") )
+            Ok executable ->
+                case Child.argument "-e" of
+                    Err _ -> ( model, Cmd.none )
+                    Ok a1 -> case Child.argument "process.exit(7)" of
+                        Err _ -> ( model, Cmd.none )
+                        Ok a2 -> ( { model | supervisor = Just supervisor }, Supervisor.spawn supervisor { onStarted = Started, onSpawnFailed = SpawnFailed, onFinished = Finished } executable [ a1, a2 ] Child.defaultSpawnOptions )
+    Started _ info -> ( model, report (Encode.object [ ( "started", Encode.int info.pid ) ]) )
+    SpawnFailed _ -> ( model, report (Encode.string "spawn-failed") )
+    Finished _ final ->
+        let
+            cleanup =
+                case final.cleanup of
+                    Child.CleanupObservedGone -> "gone"
+                    Child.CleanupUncertain detail -> detail
+            exitCode =
+                case final.leader of
+                    Child.Exited code -> code
+                    _ -> -1
+        in
+        ( model, report (Encode.object [ ( "cleanup", Encode.string cleanup ), ( "exit", Encode.int exitCode ) ]) )

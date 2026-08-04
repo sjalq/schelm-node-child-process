@@ -1,2 +1,11 @@
 # schelm-node-child-process
-Kernel-backed supervised child processes for Schelm
+
+Private Elm 0.19.2 kernel package for supervised Unix child processes on Node 24.
+
+V1 guarantees a fresh owned Unix process group and TERM → grace → KILL → fixed
+post-KILL probes. It does not own descendants that escape with `setsid`/`setpgid`,
+does not eliminate numeric PGID reuse races, and does not support Windows
+operation. The package installs no global signal handlers; applications must
+explicitly shut down supervisors. Nonzero exit is result data.
+
+See `docs/design/05-design-revision-b.md` and `06-property-test-plan.md`.
