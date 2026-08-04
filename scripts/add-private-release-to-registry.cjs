@@ -5,8 +5,10 @@ const fs = require("node:fs");
 const registryPath = process.argv[2];
 const author = process.argv[3];
 const project = process.argv[4];
-if (!registryPath || !author || !project || author.length > 255 || project.length > 255) {
-  throw new Error("usage: add-private-fixture-to-registry.cjs REGISTRY AUTHOR PROJECT");
+const version = process.argv[5];
+const parts = version && version.split(".").map(Number);
+if (!registryPath || !author || !project || author.length > 255 || project.length > 255 || !parts || parts.length !== 3 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+  throw new Error("usage: add-private-release-to-registry.cjs REGISTRY AUTHOR PROJECT MAJOR.MINOR.PATCH");
 }
 
 let registry = fs.readFileSync(registryPath);
@@ -35,7 +37,7 @@ const entry = Buffer.concat([
   Buffer.from(author),
   Buffer.from([project.length]),
   Buffer.from(project),
-  Buffer.from([1, 1, 1]),
+  Buffer.from(parts),
   Buffer.alloc(8),
 ]);
 registry = Buffer.concat([registry.subarray(0, insertion), entry, registry.subarray(insertion)]);

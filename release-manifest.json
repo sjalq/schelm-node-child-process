@@ -1,0 +1,308 @@
+{
+  "schema": 1,
+  "version": "1.1.2",
+  "sourceParent": "d5482cda27f2e1a6d549f48f2b40a0ae0a78101e",
+  "payloadSha256": "744b5562b835e070c0d3fa53df5fb26894fee5d8e776f0290265e9d7d6e8bb69",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "mode": "100644",
+      "sha256": "e953bbd2a2599530b69af4abee854a45bb17a42d7341831d5121003f2970da3a"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "sha256": "ea385f0027c84bccaa26deaee474751e777f5b623d4687cefc62208b3bd6d618"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "sha256": "f3a9ef56f8519469f00ff7eede2f63e141e21012c082ebd625d75e55c9271dd6"
+    },
+    {
+      "path": "docs/design/00-feasibility.md",
+      "mode": "100644",
+      "sha256": "615009a9db5a4554e6ad78420b2d09235d486cb4b3199df826aaaa34eeb38cee"
+    },
+    {
+      "path": "docs/design/01-design.md",
+      "mode": "100644",
+      "sha256": "9874cae826710bc9b8c0d4dd540a4d7e27fdd256dba3f3f9dbc39ef19c7221f8"
+    },
+    {
+      "path": "docs/design/02-adversarial-review-a.md",
+      "mode": "100644",
+      "sha256": "00ffc714b5f911cb90ac18b3302638b3236cfc0f678ef781edf0dc1221a86f16"
+    },
+    {
+      "path": "docs/design/03-design-revision-a.md",
+      "mode": "100644",
+      "sha256": "a4859962435a9e4d278f5574b113731252884f3189a0f7b15fbf446f8f8caf6c"
+    },
+    {
+      "path": "docs/design/04-adversarial-review-b.md",
+      "mode": "100644",
+      "sha256": "303164c78f987b4952ff95fa91bec03cd9ac303673d572ad2eefe47d68375ed6"
+    },
+    {
+      "path": "docs/design/05-design-revision-b.md",
+      "mode": "100644",
+      "sha256": "57e0f1a3be73da709746e965bc0096c8dd4c8f065409ee252a0279e877aa2b3f"
+    },
+    {
+      "path": "docs/design/06-property-test-plan.md",
+      "mode": "100644",
+      "sha256": "4cffa80e384bc0682e04b5f3abc30d70f984084dbd7113f0c78b9774f158f0a7"
+    },
+    {
+      "path": "docs/design/07-package-audit.md",
+      "mode": "100644",
+      "sha256": "64de5462dda4cb2a880202e678a80e524592b2a6d03c6c2827acbbff3a0c7ec6"
+    },
+    {
+      "path": "docs/design/08-package-complete-audit.md",
+      "mode": "100644",
+      "sha256": "35e3fdbab3c6d87c7efb3379679d6f2db7c21b833a97c5434880cec6fb46040f"
+    },
+    {
+      "path": "docs/design/09-independent-audit-repair.md",
+      "mode": "100644",
+      "sha256": "f337cf0dc21c4cc1aadb12e2054f75c5a1295c6a81e4d06ac679de95892e8bb6"
+    },
+    {
+      "path": "docs/design/10-final-audit-blockers.md",
+      "mode": "100644",
+      "sha256": "1bf9772daa988d5a65247eea264f589c6dfccb9a91952450529751d15ed4fbf6"
+    },
+    {
+      "path": "docs/design/11-parented-v1-1.md",
+      "mode": "100644",
+      "sha256": "70dd768ac585e2b4e3d4b546ed0479367edec8ce6fe8bef2a58b22b781f33ebb"
+    },
+    {
+      "path": "docs/design/12-independent-audit.md",
+      "mode": "100644",
+      "sha256": "00ed0121dfdef1b15448fa392c1d72050d2f856fa3896029aa486f5ebda936cf"
+    },
+    {
+      "path": "elm.json",
+      "mode": "100644",
+      "sha256": "fb6e7213bd16bb601b249feba6e2ed88747c0ae726bb5f59bdf6c7b1b0bda8ec"
+    },
+    {
+      "path": "fixtures/feasibility/elm.json",
+      "mode": "100644",
+      "sha256": "4936d609234a06254b3f9e4b1f5e493b9fb8e1b49e411177c8534136b7ca2c88"
+    },
+    {
+      "path": "fixtures/feasibility/run.cjs",
+      "mode": "100644",
+      "sha256": "a7d97f37952fe61b32326460a98b8b1f04eb1efafbab9d2cdec571c36be11006"
+    },
+    {
+      "path": "fixtures/feasibility/src/BuilderMain.elm",
+      "mode": "100644",
+      "sha256": "c6d6d51c1e0484d97c0bfb72cf86f7cc3bf17bd48861114b2aa1aa5a84914b6d"
+    },
+    {
+      "path": "fixtures/feasibility/src/ConformanceMain.elm",
+      "mode": "100644",
+      "sha256": "d175fb2088554b8624bda7e6ce32f0fad0e938df85ee6a3c94cecd153614d765"
+    },
+    {
+      "path": "fixtures/feasibility/src/DemandMain.elm",
+      "mode": "100644",
+      "sha256": "ffe6426cc4fb622a8f94b6bc299c5e781dd84204ef7239db249e76951a717956"
+    },
+    {
+      "path": "fixtures/feasibility/src/Main.elm",
+      "mode": "100644",
+      "sha256": "3dcdd6f2509f773883edcc4d01597a8e4c575504ccd6f438b97927d1a08502ac"
+    },
+    {
+      "path": "fixtures/feasibility/src/ParentedMain.elm",
+      "mode": "100644",
+      "sha256": "414af835bf1d8ae140d3c4d537529f528b70fb5bc084bd7d73ed81d107ff567f"
+    },
+    {
+      "path": "fixtures/feasibility/src/RunFailureMain.elm",
+      "mode": "100644",
+      "sha256": "25c545b6d1f7a362623edcb3358e9c7c7b5fc38c857e2b9c72d6a08c1fe5267a"
+    },
+    {
+      "path": "fixtures/feasibility/src/RunMain.elm",
+      "mode": "100644",
+      "sha256": "36c6b12af98cd9a9ab1c31b752ead032a8c78fbc7572df0765113862ff4778ab"
+    },
+    {
+      "path": "fixtures/feasibility/src/ScaleMain.elm",
+      "mode": "100644",
+      "sha256": "3cb1ed0ad0a07370334cacda689424e9be5a7317952870d2b0bca63d2b054832"
+    },
+    {
+      "path": "fixtures/feasibility/src/StdinRaceMain.elm",
+      "mode": "100644",
+      "sha256": "2e52a39c10b3dfe9d08a32c112bc68f27422b8207fdd5cbcc344361acdc30944"
+    },
+    {
+      "path": "fixtures/frozen-v1-provenance.json",
+      "mode": "100644",
+      "sha256": "10b34855fb9bb06a3a6b106f231fcedc9772a9c446fbd0f58ba811005a60eff0"
+    },
+    {
+      "path": "fixtures/unauthorized-author/elm.json",
+      "mode": "100644",
+      "sha256": "f51d4f1e70604e0983e890ce08cfbc2846f28998b78da56a050db6894a87039c"
+    },
+    {
+      "path": "fixtures/unauthorized-author/src/Elm/Kernel/UnauthorizedFixture.js",
+      "mode": "100644",
+      "sha256": "0b64a10f53e9a670ccd5b5810aefd17ea6ee77fcd113ac7aed440865714feed3"
+    },
+    {
+      "path": "fixtures/unauthorized-author/src/Unauthorized/KernelFixture.elm",
+      "mode": "100644",
+      "sha256": "d2d8468c2b558f8180a491193256b171e1cb190a64465aab9cf44bb2d03ec72f"
+    },
+    {
+      "path": "package.json",
+      "mode": "100644",
+      "sha256": "1210f10e8f1351634c1b40809f0892b0880ce566c731d0112cf6c37e6eefd56b"
+    },
+    {
+      "path": "scripts/add-private-release-to-registry.cjs",
+      "mode": "100644",
+      "sha256": "7aecb5215b233a42e1a81b254be2235d539346a4ceddcd88c3e23facd4af46a2"
+    },
+    {
+      "path": "scripts/archive-gate.cjs",
+      "mode": "100644",
+      "sha256": "5a8d001460a411f7b6ba66efd9caa4b4e5f9577788b702b09925f3a0eb1d504c"
+    },
+    {
+      "path": "scripts/fmt.sh",
+      "mode": "100755",
+      "sha256": "462103bff6be889705e819d2e57dfaba1c74d5d7d1134b2ab8d4e909282545f8"
+    },
+    {
+      "path": "scripts/pinned-v1-differential.cjs",
+      "mode": "100644",
+      "sha256": "65cefc4247ea71d84297b76fd08fe58f71925132bdc1ad4b87ebcbcbdee0b1ce"
+    },
+    {
+      "path": "scripts/run-feasibility.sh",
+      "mode": "100755",
+      "sha256": "128b51e31907aae1c065ef44d8935a30d020d0f169b984cf8958c194bdb0496c"
+    },
+    {
+      "path": "scripts/run-package-checks.sh",
+      "mode": "100755",
+      "sha256": "31b2ab4f04e09a9d3a54d03eca7c3b978939872c74edcd551f418a92011d90c3"
+    },
+    {
+      "path": "scripts/unauthorized-author-gate.sh",
+      "mode": "100755",
+      "sha256": "765476c4f6169cd20ccbd3f8694c8df59c5e39b0d27ca28e67124d2e0daca8b3"
+    },
+    {
+      "path": "src/Elm/Kernel/SchelmChildProcess.js",
+      "mode": "100644",
+      "sha256": "e974ca62ce13e68a3593c3097c20248e191b44faf513813d64e606d73402d34e"
+    },
+    {
+      "path": "src/Schelm/Node/ChildProcess.elm",
+      "mode": "100644",
+      "sha256": "9a81e26d8510f9bdb4e06b118ff6267118ed9dcae41a5e9e23e8c8288a495755"
+    },
+    {
+      "path": "src/Schelm/Node/ChildProcess/ParentAdapter.elm",
+      "mode": "100644",
+      "sha256": "418c9a909e608db0e21c0c60384e8d33ce43cd2da5e2f8a98cee500dd8375939"
+    },
+    {
+      "path": "src/Schelm/Node/ChildProcess/Supervisor.elm",
+      "mode": "100644",
+      "sha256": "91bfcfdceaee49a1cee527197855bdbf11e61b44ae38dd162b6edb1cf983492f"
+    },
+    {
+      "path": "tests/artifact-gate.cjs",
+      "mode": "100644",
+      "sha256": "03b50477d339cb92f4744c53a6c3c70c556141d124e6a8bf6f551b29b3b8a10b"
+    },
+    {
+      "path": "tests/builders.cjs",
+      "mode": "100644",
+      "sha256": "e6df1f68decf6ec7bb05cba07509a16af0af9bb6865e4058c6eefc0911d871dc"
+    },
+    {
+      "path": "tests/conformance-worker.cjs",
+      "mode": "100644",
+      "sha256": "4468198cd8ede84b6e0e6de65b4c3ec6dbec3eb3eccd24be91590957372e5679"
+    },
+    {
+      "path": "tests/demand-worker.cjs",
+      "mode": "100644",
+      "sha256": "6d596f190bcd8bea7dc1dc0e9b03200f386b052a09be79496030829211a0126a"
+    },
+    {
+      "path": "tests/model/generated-model.test.cjs",
+      "mode": "100644",
+      "sha256": "91a8686a10ebf3a068a7828f51976cbfff01701c4aaacc0acdc2a545610e7899"
+    },
+    {
+      "path": "tests/model/parent-adapter.test.cjs",
+      "mode": "100644",
+      "sha256": "ab2d85569fd30a62c0c17a2a03191073653f06f8d4c07cc7f880700d856559df"
+    },
+    {
+      "path": "tests/node/backpressure-rss.test.cjs",
+      "mode": "100644",
+      "sha256": "fa3698d1ade692d04bf4f3ebca917ccfa92817cb99ce6f465076cbc3c5b75568"
+    },
+    {
+      "path": "tests/node/cleanup-oracle.test.cjs",
+      "mode": "100644",
+      "sha256": "6377ebef62812fbb8bc13c2e5a2d93e96b5e791bbf71ba0c38bdd45c61b648fb"
+    },
+    {
+      "path": "tests/node/process-groups.test.cjs",
+      "mode": "100644",
+      "sha256": "d9bf1e063b6ace14fbb4258f2720aa6b1dac8226cdb291fafa25ab5c9fbe5194"
+    },
+    {
+      "path": "tests/parented-runner.cjs",
+      "mode": "100644",
+      "sha256": "70c4395bab04bc58ed883b93d234dc68dabcf9d6e53f40430f271db623b2dac2"
+    },
+    {
+      "path": "tests/parented-worker.cjs",
+      "mode": "100644",
+      "sha256": "81365cf271dfb1778fe70631de336cb56e8c1fe2e23258cbd7f26b21bea16fea"
+    },
+    {
+      "path": "tests/run-failure-worker.cjs",
+      "mode": "100644",
+      "sha256": "e4eec85ef48a19ef7bf394cdefb71456383eee41892215a79a6cf417518bc858"
+    },
+    {
+      "path": "tests/run-worker.cjs",
+      "mode": "100644",
+      "sha256": "4cce6427f7c522dfee5fbff6ad2dd5e3eb26c69087d5b135de6da11e1564c9b0"
+    },
+    {
+      "path": "tests/scale-worker.cjs",
+      "mode": "100644",
+      "sha256": "b8cbd0f479c09e997253d4891a80da350f4d5db354fd3c557cffb1ca12ca6983"
+    },
+    {
+      "path": "tests/stdin-race-worker.cjs",
+      "mode": "100644",
+      "sha256": "3dab21d9cfa2b1aaa84698bc63af9bdaa08eb6ee7f6bd3a18ed02b7880d39274"
+    },
+    {
+      "path": "toolchain.json",
+      "mode": "100644",
+      "sha256": "1820784137c079352189c2f221e5e9055983ca0e87304ba67e8253ffb3b51e38"
+    }
+  ]
+}

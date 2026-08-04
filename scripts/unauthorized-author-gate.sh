@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ELM=${SCHELM_ELM:-/home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author/result/bin/elm}
-COMPILER_ROOT=${SCHELM_COMPILER_ROOT:-/home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author}
 HTTP=${SCHELM_HTTP_CLIENT_WORKTREE:-/home/s.dormehl/git/schelm/.worktrees/program-foundation/packages/node-http-client/.worktrees/schelm-node-http-client-v1}
 HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-cp -R "$COMPILER_ROOT/fixtures/kernel-authorization/unauthorized-author" "$WORK/fixture"
+cp -R "$ROOT/fixtures/unauthorized-author" "$WORK/fixture"
 for mode in debug optimize; do
   args=
   test "$mode" = optimize && args=--optimize

@@ -1,0 +1,10 @@
+{
+  "name": "schelm-node-child-process-release-gates",
+  "private": true,
+  "version": "1.1.2",
+  "scripts": {
+    "fmt": "sh scripts/fmt.sh",
+    "fmt:check": "sh scripts/fmt.sh --validate",
+    "gate": "sh scripts/run-package-checks.sh"
+  }
+}

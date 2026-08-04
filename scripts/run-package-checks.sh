@@ -5,11 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ELM=${SCHELM_ELM:-/home/s.dormehl/git/elm-compiler/.worktrees/schelm-kernel-author/result/bin/elm}
 HTTP=${SCHELM_HTTP_CLIENT_WORKTREE:-/home/s.dormehl/git/schelm/.worktrees/program-foundation/packages/node-http-client/.worktrees/schelm-node-http-client-v1}
 HOME_DIR=$(node "$HTTP/scripts/prepare-overlay.cjs")
-PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.1"
+PKG="$HOME_DIR/0.19.2/packages/sjalq/schelm-node-child-process/1.1.2"
 ELM_HOME="$HOME_DIR" "$ELM" make --docs=/tmp/schelm-child-docs.json >/dev/null
 test -s /tmp/schelm-child-docs.json
 mkdir -p "$PKG"; rm -rf "$PKG/src"; cp -R "$ROOT/src" "$PKG/src"; cp "$ROOT/elm.json" "$ROOT/README.md" "$PKG/"
-node "$ROOT/scripts/add-private-v1-1-to-registry.cjs" "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process
+node "$ROOT/scripts/add-private-release-to-registry.cjs" "$HOME_DIR/0.19.2/packages/registry.dat" sjalq schelm-node-child-process 1.1.2
 cd "$ROOT/fixtures/feasibility"; rm -rf elm-stuff
 ELM_HOME="$HOME_DIR" "$ELM" make src/BuilderMain.elm --output=/tmp/schelm-child-builder-debug.js >/dev/null
 ELM_HOME="$HOME_DIR" "$ELM" make src/BuilderMain.elm --optimize --output=/tmp/schelm-child-builder-opt.js >/dev/null

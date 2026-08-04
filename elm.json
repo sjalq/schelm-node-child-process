@@ -3,7 +3,7 @@
   "name": "sjalq/schelm-node-child-process",
   "summary": "Supervised Unix child processes for Node.js",
   "license": "BSD-3-Clause",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "elm-version": "0.19.0 <= v < 0.20.0",
   "exposed-modules": ["Schelm.Node.ChildProcess", "Schelm.Node.ChildProcess.Supervisor", "Schelm.Node.ChildProcess.ParentAdapter"],
   "dependencies": {"elm/core":"1.0.5 <= v < 2.0.0","elm/bytes":"1.0.8 <= v < 2.0.0"},
