@@ -234,7 +234,7 @@ start router sid cb executable arguments facts state =
                                         |> Task.onError (Err >> Task.succeed)
                                         |> Task.andThen
                                             (\bindResult ->
-                                                Process.sleep 0
+                                                Process.sleep 25
                                                     |> Task.andThen (\_ -> Platform.sendToSelf router (ParentBound sid oid pid bindResult))
                                             )
                                         |> Process.spawn
