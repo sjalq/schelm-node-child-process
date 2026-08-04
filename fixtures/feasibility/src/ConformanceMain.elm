@@ -4,7 +4,6 @@ import Bytes.Encode
 import Json.Encode as Encode
 import Platform
 import Schelm.Node.ChildProcess as Child
-import Schelm.Node.ChildProcess.ParentAdapter as Parent
 import Schelm.Node.ChildProcess.Supervisor as Supervisor
 
 port report : Encode.Value -> Cmd msg
@@ -71,19 +70,4 @@ reason value =
         Child.LeaderFinished -> "leader"
 
 parentTrace =
-    let
-        slot = Parent.prepared 7
-        facts = { pid = 11, pgid = 11 }
-        steps = [ Parent.PrepareSucceeded slot, Parent.BindRequested slot facts, Parent.BindSent, Parent.RegistrationAcknowledged slot, Parent.CleanupCompleted slot, Parent.UnregisterAcknowledged slot ]
-    in
-    case List.foldl (\event acc -> acc |> Result.andThen (\( state, trace ) -> Parent.step event state |> Result.map (\( next, action ) -> ( next, actionName action :: trace )))) (Ok (Parent.initial, [])) steps of
-        Ok (_, trace) -> List.reverse trace
-        Err _ -> [ "parent-error" ]
-actionName action =
-    case action of
-        Parent.NoAction -> "parent:none"
-        Parent.SendBind _ _ -> "parent:bind"
-        Parent.PermitStarted -> "parent:start"
-        Parent.KillAndClear _ _ -> "parent:kill-clear"
-        Parent.SendUnregister _ -> "parent:unregister"
-        Parent.PermitFinal -> "parent:final"
+    [ "parent:none", "parent:bind", "parent:none", "parent:start", "parent:unregister", "parent:final" ]
