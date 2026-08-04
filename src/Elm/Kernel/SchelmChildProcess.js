@@ -50,6 +50,7 @@ function _SchelmChildProcess_installParentRelay(child){
   var drained=false;
   function drain(){if(drained)return;drained=true;child.removeListener("message",onMessage);for(let parentReservation of reservations.values()){_SchelmChildProcess_parentRequest("schelm-child.before-kill","schelm-child.reaped",parentReservation,{},5000,function(){_SchelmChildProcess_parentRequest("schelm-child.unregister","schelm-child.unregistered",parentReservation,{},5000,function(){});});}reservations.clear();}
   child.on("message",onMessage);
+  child.once("disconnect",drain);
   child.once("exit",drain);
   return drain;
 }
