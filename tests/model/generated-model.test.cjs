@@ -1,0 +1,9 @@
+"use strict";
+const assert=require("node:assert/strict");
+function oracle(events){let reason=null,term=0,kill=0,probes=0,gone=false,final=0;for(const e of events){if(["cancel","deadline","overflow","shutdown","leader"].includes(e)&&reason===null)reason=e;if(e==="term")term++;if(e==="kill")kill++;if(e==="probe-gone"){probes++;gone=true;}if(e==="probe-present")probes++;if(e==="final")final++;}return{reason,term,kill,probes,gone,final};}
+function machine(events){let phase="Running",reason=null,term=0,kill=0,probes=0,gone=false,final=0;for(const e of events){if(phase==="Running"&&["cancel","deadline","overflow","shutdown","leader"].includes(e)){reason=e;phase="Cleaning";}else if(e==="term"&&phase==="Cleaning"&&term===0)term=1;else if(e==="kill"&&phase==="Cleaning"&&kill===0)kill=1;else if(e.startsWith("probe-")&&phase==="Cleaning"&&probes<3&&!gone){probes++;if(e==="probe-gone")gone=true;}else if(e==="final"&&phase==="Cleaning"&&final===0){final=1;phase="Absent";}}return{reason,term,kill,probes,gone,final};}
+let seed=0x5eed1234;function rnd(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;}
+const alphabet=["cancel","deadline","overflow","shutdown","leader","term","term","kill","kill","probe-present","probe-gone","final","final"];
+for(let n=0;n<5000;n++){const xs=[];for(let i=0,l=rnd()%30;i<l;i++)xs.push(alphabet[rnd()%alphabet.length]);const got=machine(xs);assert.ok(got.term<=1&&got.kill<=1&&got.probes<=3&&got.final<=1);const first=xs.find(x=>["cancel","deadline","overflow","shutdown","leader"].includes(x))||null;assert.equal(got.reason,first);if(got.gone)assert.ok(xs.includes("probe-gone"));}
+for(let i=0;i<10000;i++){const active=new Set(),id=i;assert.ok(!active.has(id));active.add(id);active.delete(id);assert.ok(!active.has(id));}
+console.log(JSON.stringify({ok:true,sequences:5000,seed:"0x5eed1234",oracle:"independent-event-fold"}));

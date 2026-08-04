@@ -1,0 +1,17 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  linux-package-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Explain private toolchain requirement
+        run: |
+          test "$(uname -s)" = Linux
+          echo "Full gate requires pinned private Schelm compiler and package seed."
+          echo "Hosted CI must install those immutable artifacts before enabling scripts/run-package-checks.sh."
+      - run: node tests/model/generated-model.test.cjs
+      - run: node tests/model/parent-adapter.test.cjs
+      - run: node tests/node/cleanup-oracle.test.cjs
+      - run: node tests/node/process-groups.test.cjs
+      - run: node tests/node/backpressure-rss.test.cjs

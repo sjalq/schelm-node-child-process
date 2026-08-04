@@ -32,6 +32,7 @@ type alias SpawnCallbacks msg =
     , onFinished : Operation -> Child.Final -> msg
     }
 
+{-| Buffered run lifecycle callbacks. -}
 type alias RunCallbacks msg =
     { onStarted : Operation -> Child.ProcessInfo -> msg
     , onSpawnFailed : Child.SpawnError -> msg
@@ -70,22 +71,31 @@ type SelfMsg
 type alias MyRouter msg = Platform.Router msg SelfMsg
 
 {-| Create a standalone Unix supervisor. -}
+create : (Result Child.CreateError Supervisor -> msg) -> Cmd msg
 create cb = command (Create cb)
 {-| Spawn a demand-streamed process. -}
+spawn : Supervisor -> SpawnCallbacks msg -> Child.Program -> List Child.Argument -> Child.SpawnOptions -> Cmd msg
 spawn supervisor callbacks executable arguments options = command (Spawn supervisor callbacks executable arguments options)
 {-| Run a buffered-mode process through the same lifecycle. -}
+run : Supervisor -> RunCallbacks msg -> Child.Program -> List Child.Argument -> Child.RunOptions -> Cmd msg
 run supervisor callbacks executable arguments options = command (Run supervisor callbacks executable arguments options)
 {-| Demand one stdout chunk. -}
+demandStdout : Operation -> (Request -> Result Child.ReadError Child.ReadResult -> msg) -> Cmd msg
 demandStdout operation cb = command (Demand True operation cb)
 {-| Demand one stderr chunk. -}
+demandStderr : Operation -> (Request -> Result Child.ReadError Child.ReadResult -> msg) -> Cmd msg
 demandStderr operation cb = command (Demand False operation cb)
 {-| Write one stdin value with Node backpressure. -}
+writeStdin : Operation -> Bytes -> (Request -> Result Child.WriteError () -> msg) -> Cmd msg
 writeStdin operation bytes cb = command (Write operation bytes cb)
 {-| Close streamed stdin. -}
+closeStdin : Operation -> (Request -> Result Child.WriteError () -> msg) -> Cmd msg
 closeStdin operation cb = command (Close operation cb)
 {-| Join or initiate operation cleanup. -}
+cancel : Operation -> (Result Child.ControlError () -> msg) -> Cmd msg
 cancel operation cb = command (Cancel operation cb)
 {-| Explicitly shut down a supervisor. -}
+shutdown : Supervisor -> (Result Child.ControlError Child.ShutdownReport -> msg) -> Cmd msg
 shutdown supervisor cb = command (Shutdown supervisor cb)
 
 cmdMap f command_ =
@@ -178,7 +188,13 @@ start router sid cb executable arguments facts state =
                 (\result ->
                     case result of
                         Err error -> send router (spawnFailed cb (mapSpawn error)) { state | nextOperation = oid + 1 }
-                        Ok pid -> send router (started cb (Operation sid oid) { pid = pid }) { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active }
+                        Ok pid ->
+                            let
+                                next = { state | nextOperation = oid + 1, active = Dict.insert oid { supervisor = sid, callbacks = cb } state.active }
+                                arm = Process.sleep 0 |> Task.andThen (\_ -> Elm.Kernel.SchelmChildProcess.arm oid)
+                            in
+                            Process.spawn arm
+                                |> Task.andThen (\_ -> send router (started cb (Operation sid oid) { pid = pid }) next)
                 )
 
 startRead router stdout sid oid cb state =
@@ -219,7 +235,9 @@ owned sid oid state =
     case Dict.get oid state.active of
         Just active -> active.supervisor == sid
         Nothing -> False
-send router msg state = Platform.sendToApp router msg |> Task.andThen (\_ -> Task.succeed state)
+send router msg state =
+    Platform.sendToApp router msg
+        |> Task.andThen (\_ -> Task.succeed state)
 spawnFailed callbacks error =
     case callbacks of
         SpawnCallbacksValue cb -> cb.onSpawnFailed error
@@ -239,16 +257,15 @@ finishOperation router oid active final state =
                 SpawnCallbacksValue cb -> cb.onFinished operation final
                 RunCallbacksValue cb -> cb.onFinished operation (runResult final)
         remaining = Dict.foldl (\_ item count -> if item.supervisor == active.supervisor then count + 1 else count) 0 next.active
-    in
-    send router finishedMsg next
-        |> Task.andThen (\after ->
-            case Dict.get active.supervisor after.shutdowns of
+        messages =
+            case Dict.get active.supervisor next.shutdowns of
                 Just shutdownCb ->
-                    if remaining == 0 then
-                        send router (shutdownCb (Ok { operationsFinished = 0 })) { after | shutdowns = Dict.remove active.supervisor after.shutdowns }
-                    else Task.succeed after
-                Nothing -> Task.succeed after
-        )
+                    if remaining == 0 then [ finishedMsg, shutdownCb (Ok { operationsFinished = 0 }) ] else [ finishedMsg ]
+                Nothing -> [ finishedMsg ]
+        after = if remaining == 0 then { next | shutdowns = Dict.remove active.supervisor next.shutdowns } else next
+        notify = Process.sleep 0 |> Task.andThen (\_ -> messages |> List.map (Platform.sendToApp router) |> Task.sequence |> Task.map (always ()))
+    in
+    Process.spawn notify |> Task.andThen (\_ -> Task.succeed after)
 
 runResult final =
     let failure = { leader = Just final.leader, cleanup = final.cleanup, stdout = final.stdout, stderr = final.stderr } in
@@ -286,7 +303,7 @@ onSelfMsg router self state =
                 Nothing -> Task.succeed state
                 Just active ->
                     let
-                        term = if signal /= "" then Child.Signaled signal else Child.Exited code
+                        term = if signal /= "" then Child.Signaled signal else if code < 0 then Child.ExitUnknown else Child.Exited code
                         final = { leader = term, cleanupReason = mapReason reason, cleanup = if cleanupDetail == "gone" then Child.CleanupObservedGone else Child.CleanupUncertain cleanupDetail, stdout = maybeCapture stdout, stderr = maybeCapture stderr }
                     in
                     finishOperation router oid active final state

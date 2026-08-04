@@ -28,7 +28,7 @@ Status: package-local Unix v1 implemented; **harness integration remains blocked
 
 The package is broad enough for Unix v1 but the full `06` matrix is not yet
 automated in this minimal repository. Before harness integration, add generated
-pure-model/fake-kernel suites, macOS CI, 10k chunk/RSS measurements, controlled
+pure-model/fake-kernel suites, 10k chunk/RSS measurements, controlled
 in-group grandchild and setsid-exclusion fixtures, async stdin race injection,
 archive reproducibility, and parent fake protocol execution. Current smoke tests
 are not substitutes for those gates.

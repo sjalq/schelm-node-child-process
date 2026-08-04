@@ -1,0 +1,8 @@
+{
+  "compilerCommit": "bb9bad30",
+  "upstreamElmCommit": "48befde196cbcbdf459114e36c02b52c49b58050",
+  "compilerSha256": "69987adf7062562b6e6dfd60b6709be3a06feeb90b096b9c84f673f2b97d8654",
+  "node": "24.4.1",
+  "platform": "linux-x64",
+  "scope": "Linux-only v1; macOS and Windows fail before spawn"
+}

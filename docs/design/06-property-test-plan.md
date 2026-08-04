@@ -41,7 +41,7 @@ Parent protocol properties cover all six states and the pre-spawn prepare rule. 
 
 ## Layer 3: real OS/Node fixtures
 
-On Linux and macOS Node 24, debug and optimize:
+On Linux Node 24, debug and optimize:
 
 - argv/cwd/inherit/merge/replace environment fidelity including spaces and empty values;
 - missing executable, EACCES, missing cwd, invalid NUL configuration;

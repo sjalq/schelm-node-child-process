@@ -4,7 +4,7 @@ This document is the implementation contract. It supersedes API/state details in
 
 ## Scope
 
-Unix Node 24 supervised process groups on tested Linux/macOS. Direct executable and argv, cwd/env, stdin modes, demand-streamed or inherited/discarded output, bounded buffered run, deadlines, cancellation, explicit supervisor shutdown. Windows and escaped sessions/groups are unsupported. “Owned descendants” means only processes remaining in the spawned PGID.
+Unix Node 24 supervised process groups on tested Linux. Direct executable and argv, cwd/env, stdin modes, demand-streamed or inherited/discarded output, bounded buffered run, deadlines, cancellation, explicit supervisor shutdown. Windows and escaped sessions/groups are unsupported. “Owned descendants” means only processes remaining in the spawned PGID.
 
 ## Public shape
 
