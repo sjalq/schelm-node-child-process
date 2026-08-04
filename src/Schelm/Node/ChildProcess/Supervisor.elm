@@ -232,7 +232,11 @@ start router sid cb executable arguments facts state =
                                     Elm.Kernel.SchelmChildProcess.parentBind oid reservation timeout
                                         |> Task.map Ok
                                         |> Task.onError (Err >> Task.succeed)
-                                        |> Task.andThen (ParentBound sid oid pid >> Platform.sendToSelf router)
+                                        |> Task.andThen
+                                            (\result ->
+                                                Process.sleep 0
+                                                    |> Task.andThen (\_ -> Platform.sendToSelf router (ParentBound sid oid pid result))
+                                            )
                                         |> Process.spawn
                                         |> Task.andThen (\_ -> Task.succeed next)
                 )
